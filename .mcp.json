@@ -9,7 +9,11 @@
       "nomnomnumbers": {                                                                                                                             
         "command": "bun",                                                                                                                            
         "args": ["run", "/Users/markberry/Projects/nomnomnumbers/src/index.ts"]
-      }                                                                                                                                              
+      },
+      "nomnomnumbers-remote": {
+        "type": "sse",
+        "url": "http://localhost:3456/sse"
+      }
 
     }
   }

@@ -75,6 +75,8 @@ USDA_FDC_API_KEY=...      # For USDA FoodData Central API (get key at fdc.nal.us
 
 ## MCP Integration
 
+### Local (stdio) Mode
+
 Add to Claude Code's `.mcp.json`:
 
 ```json
@@ -89,6 +91,30 @@ Add to Claude Code's `.mcp.json`:
 ```
 
 Set environment variables in your shell profile (`.zshrc`, `.bashrc`, etc.) or use a `.env` file in the project root. The MCP server will inherit environment variables from your shell.
+
+### Remote (HTTP/SSE) Mode
+
+Start the server in HTTP mode:
+
+```bash
+bun run start:http    # Production
+bun run dev:http      # Development with watch
+```
+
+Default port is 3456. Override with `MCP_PORT` environment variable.
+
+Connect remote clients via URL:
+
+```json
+{
+  "mcpServers": {
+    "nomnomnumbers": {
+      "type": "sse",
+      "url": "http://localhost:3456/sse"
+    }
+  }
+}
+```
 
 ## Available Tools
 

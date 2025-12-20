@@ -5,7 +5,9 @@
   "private": true,
   "scripts": {
     "start": "bun run src/index.ts",
+    "start:http": "MCP_HTTP=true bun run src/index.ts",
     "dev": "bun --watch run src/index.ts",
+    "dev:http": "MCP_HTTP=true bun --watch run src/index.ts",
     "typecheck": "tsc --noEmit",
     "import:usda": "bun run src/db/usda-import.ts"
   },
