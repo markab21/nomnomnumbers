@@ -6,24 +6,36 @@ import {
   isUSDADatabaseAvailable,
   type USDAFood,
 } from "../../db/usda-sqlite";
+import { fullNutritionSchema } from "../../db/nutrient-fields";
 
-// Schema for the food search result with agent synthesis
-const foodResultSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  brand: z.string().nullable(),
-  barcode: z.string().nullable(),
-  calories: z.number().nullable(),
-  protein: z.number().nullable(),
-  carbs: z.number().nullable(),
-  fat: z.number().nullable(),
-  fiber_g: z.number().nullable(),
-  sugar_g: z.number().nullable(),
-  sugar_alcohols_g: z.number().nullable(),
-  net_carbs: z.number().nullable().describe("Carbs minus fiber minus sugar alcohols"),
-  serving_size: z.string().nullable(),
-  source: z.string(),
-});
+// Schema for the food search result with full nutrition
+const foodResultSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    brand: z.string().nullable(),
+    barcode: z.string().nullable(),
+    serving_size: z.string().nullable(),
+    source: z.string(),
+  })
+  .merge(
+    z.object({
+      // Core macros (nullable for search results)
+      calories: z.number().nullable(),
+      protein: z.number().nullable(),
+      carbs: z.number().nullable(),
+      fat: z.number().nullable(),
+      // Extended macros
+      fiber_g: z.number().nullable(),
+      sugar_g: z.number().nullable(),
+      sugar_alcohols_g: z.number().nullable(),
+      net_carbs: z.number().nullable().describe("Carbs minus fiber minus sugar alcohols"),
+      cholesterol_mg: z.number().nullable(),
+      saturated_fat_g: z.number().nullable(),
+      trans_fat_g: z.number().nullable(),
+      sodium_mg: z.number().nullable(),
+    })
+  );
 
 export const searchFood = createTool({
   id: "search_food",
@@ -60,7 +72,8 @@ Instructions:
    - Serving size
    - Calories, protein, carbs, fat
    - NET CARBS (calculate: carbs - fiber - sugar_alcohols)
-   - Notable micronutrients (sodium if high, etc.)
+   - Fiber, sugar, sodium
+   - Notable micronutrients (vitamins, minerals if significant)
    - Your synthesis notes (dietary considerations, keto-friendliness, etc.)
 
 Format your response clearly with each food separated.`;
@@ -85,7 +98,7 @@ Format your response clearly with each food separated.`;
 });
 
 /**
- * Format USDA food for barcode lookup response
+ * Format USDA food for barcode lookup response with full nutrition
  */
 function formatUSDAFood(food: USDAFood) {
   const servingSize =
@@ -99,16 +112,22 @@ function formatUSDAFood(food: USDAFood) {
     name: food.description,
     brand: food.brand_owner || food.brand_name || null,
     barcode: food.gtin_upc,
+    serving_size: servingSize,
+    source: "usda-local",
+    // Core macros
     calories: food.calories,
     protein: food.protein,
     carbs: food.carbs,
     fat: food.fat,
+    // Extended macros
     fiber_g: food.fiber_g,
     sugar_g: food.sugar_g,
     sugar_alcohols_g: food.sugar_alcohols_g,
     net_carbs: food.net_carbs,
-    serving_size: servingSize,
-    source: "usda-local",
+    cholesterol_mg: food.micronutrients?.cholesterol_mg ?? null,
+    saturated_fat_g: food.micronutrients?.saturated_fat_g ?? null,
+    trans_fat_g: food.micronutrients?.trans_fat_g ?? null,
+    sodium_mg: food.micronutrients?.sodium_mg ?? null,
   };
 }
 

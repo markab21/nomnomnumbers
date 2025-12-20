@@ -20,6 +20,7 @@ import {
   addAuditLog,
   searchAuditLogs,
 } from "../../src/db";
+import { DEFAULT_NUTRITION } from "../../src/db/nutrient-fields";
 
 const TEST_DB_PATH = "./data/lance-test";
 
@@ -74,16 +75,26 @@ describe("Database Operations", () => {
       expect(goals).toBeNull();
     });
 
-    test("should set and get user goals", async () => {
+    test("should set and get user goals with full nutrition fields", async () => {
       const goalsInput = {
         user_id: testUserId,
         calories: 2000,
         protein: 150,
         carbs: 200,
         fat: 70,
-        fiber: 30,
-        sodium: 2300,
-        sugar: 50,
+        fiber_g: 30,
+        sodium_mg: 2300,
+        sugar_g: 50,
+        net_carbs: 100,
+        saturated_fat_g: 20,
+        cholesterol_mg: 300,
+        potassium_mg: 3500,
+        calcium_mg: 1000,
+        iron_mg: 18,
+        magnesium_mg: 400,
+        vitamin_d_ug: 15,
+        vitamin_c_mg: 90,
+        vitamin_b12_ug: 2.4,
         updated_at: new Date().toISOString(),
       };
 
@@ -96,9 +107,12 @@ describe("Database Operations", () => {
       expect(retrieved!.protein).toBe(150);
       expect(retrieved!.carbs).toBe(200);
       expect(retrieved!.fat).toBe(70);
-      expect(retrieved!.fiber).toBe(30);
-      expect(retrieved!.sodium).toBe(2300);
-      expect(retrieved!.sugar).toBe(50);
+      expect(retrieved!.fiber_g).toBe(30);
+      expect(retrieved!.sodium_mg).toBe(2300);
+      expect(retrieved!.sugar_g).toBe(50);
+      expect(retrieved!.net_carbs).toBe(100);
+      expect(retrieved!.saturated_fat_g).toBe(20);
+      expect(retrieved!.cholesterol_mg).toBe(300);
     });
 
     test("should update existing user goals", async () => {
@@ -106,11 +120,7 @@ describe("Database Operations", () => {
         user_id: testUserId,
         calories: 2500,
         protein: 180,
-        carbs: null,
-        fat: null,
-        fiber: 35,
-        sodium: null,
-        sugar: null,
+        fiber_g: 35,
         updated_at: new Date().toISOString(),
       };
 
@@ -120,9 +130,10 @@ describe("Database Operations", () => {
       expect(retrieved).not.toBeNull();
       expect(retrieved!.calories).toBe(2500);
       expect(retrieved!.protein).toBe(180);
-      expect(retrieved!.fiber).toBe(35);
-      expect(retrieved!.sodium).toBeNull();
-      expect(retrieved!.sugar).toBeNull();
+      expect(retrieved!.fiber_g).toBe(35);
+      // Previous values should be cleared on update
+      expect(retrieved!.carbs).toBeUndefined();
+      expect(retrieved!.sodium_mg).toBeUndefined();
     });
   });
 });
@@ -138,18 +149,56 @@ describe("Database Operations with Embeddings", () => {
   describe.skipIf(!hasOpenAIKey)("Food Operations", () => {
     const testFoodId = "test-food-" + Date.now();
 
-    test("should add a food item", async () => {
+    test("should add a food item with full nutrition", async () => {
       const food = {
         id: testFoodId,
         name: "Grilled Chicken Breast",
         brand: "Generic",
         barcode: "123456789012",
+        serving_size: "100g",
+        serving_grams: 100,
+        source: "custom" as const,
+        // Core macros
         calories: 165,
         protein: 31,
         carbs: 0,
         fat: 3.6,
-        serving_size: "100g",
-        source: "custom" as const,
+        // Extended nutrition
+        fiber_g: 0,
+        sugar_g: 0,
+        sugar_alcohols_g: null,
+        net_carbs: 0,
+        cholesterol_mg: 85,
+        saturated_fat_g: 1,
+        trans_fat_g: 0,
+        monounsaturated_fat_g: 1.2,
+        polyunsaturated_fat_g: 0.8,
+        omega_3_g: null,
+        omega_6_g: null,
+        // Vitamins
+        vitamin_a_ug: null,
+        vitamin_c_mg: 0,
+        vitamin_d_ug: null,
+        vitamin_e_mg: null,
+        vitamin_k_ug: null,
+        thiamin_mg: null,
+        riboflavin_mg: null,
+        niacin_mg: 13.4,
+        vitamin_b6_mg: 0.6,
+        vitamin_b12_ug: 0.3,
+        folate_ug: null,
+        choline_mg: null,
+        // Minerals
+        calcium_mg: 15,
+        iron_mg: 1,
+        magnesium_mg: 29,
+        phosphorus_mg: 228,
+        potassium_mg: 256,
+        sodium_mg: 74,
+        zinc_mg: 1,
+        copper_mg: null,
+        manganese_mg: null,
+        selenium_ug: 27.6,
       };
 
       await addFood(food);
@@ -182,7 +231,7 @@ describe("Database Operations with Embeddings", () => {
     const testUserId = "test-user-meals";
     const today = new Date().toISOString().split("T")[0];
 
-    test("should add a meal log", async () => {
+    test("should add a meal log with full nutrition", async () => {
       const meal = {
         id: "test-meal-" + Date.now(),
         user_id: testUserId,
@@ -190,13 +239,50 @@ describe("Database Operations with Embeddings", () => {
         food_name: "Oatmeal with Berries",
         quantity: 1,
         unit: "bowl",
+        meal_type: "breakfast" as const,
+        logged_at: new Date().toISOString(),
+        notes: "Added honey",
+        // Core macros
         calories: 350,
         protein: 12,
         carbs: 60,
         fat: 8,
-        meal_type: "breakfast" as const,
-        logged_at: new Date().toISOString(),
-        notes: "Added honey",
+        // Extended nutrition
+        fiber_g: 8,
+        sugar_g: 15,
+        sugar_alcohols_g: null,
+        net_carbs: 52,
+        cholesterol_mg: 0,
+        saturated_fat_g: 1.5,
+        trans_fat_g: 0,
+        monounsaturated_fat_g: null,
+        polyunsaturated_fat_g: null,
+        omega_3_g: null,
+        omega_6_g: null,
+        // Vitamins
+        vitamin_a_ug: null,
+        vitamin_c_mg: 4,
+        vitamin_d_ug: null,
+        vitamin_e_mg: null,
+        vitamin_k_ug: null,
+        thiamin_mg: null,
+        riboflavin_mg: null,
+        niacin_mg: null,
+        vitamin_b6_mg: null,
+        vitamin_b12_ug: null,
+        folate_ug: null,
+        choline_mg: null,
+        // Minerals
+        calcium_mg: 20,
+        iron_mg: 4,
+        magnesium_mg: 60,
+        phosphorus_mg: null,
+        potassium_mg: 200,
+        sodium_mg: 5,
+        zinc_mg: null,
+        copper_mg: null,
+        manganese_mg: null,
+        selenium_ug: null,
       };
 
       await addMealLog(meal);

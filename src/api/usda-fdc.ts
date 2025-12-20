@@ -3,6 +3,8 @@
  * https://fdc.nal.usda.gov/api-guide.html
  */
 
+import type { FullNutrition } from "../db/nutrient-fields";
+
 const BASE_URL = "https://api.nal.usda.gov/fdc/v1";
 
 export interface USDAFoodNutrient {
@@ -37,61 +39,17 @@ export interface USDASearchResponse {
 }
 
 /**
- * Full nutrition data including micronutrients
- * Values are per serving (null = not available in USDA data)
+ * Normalized food data with full nutrition (flat structure)
+ * All nutrition fields are at top level, not nested
  */
-export interface Micronutrients {
-  // Vitamins
-  vitamin_a_ug: number | null;      // RAE (Retinol Activity Equivalents)
-  vitamin_c_mg: number | null;
-  vitamin_d_ug: number | null;
-  vitamin_e_mg: number | null;
-  vitamin_k_ug: number | null;
-  thiamin_mg: number | null;        // B1
-  riboflavin_mg: number | null;     // B2
-  niacin_mg: number | null;         // B3
-  vitamin_b6_mg: number | null;
-  vitamin_b12_ug: number | null;
-  folate_ug: number | null;
-  choline_mg: number | null;
-
-  // Minerals
-  calcium_mg: number | null;
-  iron_mg: number | null;
-  magnesium_mg: number | null;
-  phosphorus_mg: number | null;
-  potassium_mg: number | null;
-  sodium_mg: number | null;
-  zinc_mg: number | null;
-  copper_mg: number | null;
-  manganese_mg: number | null;
-  selenium_ug: number | null;
-
-  // Other
-  fiber_g: number | null;
-  sugar_g: number | null;
-  cholesterol_mg: number | null;
-  saturated_fat_g: number | null;
-  monounsaturated_fat_g: number | null;
-  polyunsaturated_fat_g: number | null;
-  trans_fat_g: number | null;
-  omega_3_g: number | null;
-  omega_6_g: number | null;
-}
-
-export interface NormalizedFood {
+export interface NormalizedFood extends FullNutrition {
   id: string;
   name: string;
   brand: string | null;
   barcode: string | null;
-  calories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
   serving_size: string;
   serving_grams: number;
   source: "usda";
-  micronutrients: Micronutrients;
 }
 
 function getApiKey(): string {
@@ -212,56 +170,66 @@ export function normalizeUSDAFood(food: USDAFood): NormalizedFood {
     2
   );
 
+  // Calculate net carbs
+  const fiber = getScaled("fiber");
+  const sugar_alcohols = null; // USDA doesn't have sugar alcohols directly
+  const carbs_val = round((getNutrientValue(nutrients, NUTRIENT_MAP.carbs) ?? 0) * scale) ?? 0;
+  const net_carbs = fiber !== null ? carbs_val - fiber : null;
+
   return {
+    // Metadata
     id: `usda-${food.fdcId}`,
     name: food.description,
     brand: food.brandOwner || food.brandName || null,
     barcode: null,
-    calories: Math.round((getNutrientValue(nutrients, NUTRIENT_MAP.calories) ?? 0) * scale),
-    protein: round((getNutrientValue(nutrients, NUTRIENT_MAP.protein) ?? 0) * scale) ?? 0,
-    carbs: round((getNutrientValue(nutrients, NUTRIENT_MAP.carbs) ?? 0) * scale) ?? 0,
-    fat: round((getNutrientValue(nutrients, NUTRIENT_MAP.fat) ?? 0) * scale) ?? 0,
     serving_size: servingSize,
     serving_grams: servingGrams,
     source: "usda" as const,
-    micronutrients: {
-      // Vitamins
-      vitamin_a_ug: getScaled("vitamin_a"),
-      vitamin_c_mg: getScaled("vitamin_c"),
-      vitamin_d_ug: getScaled("vitamin_d"),
-      vitamin_e_mg: getScaled("vitamin_e"),
-      vitamin_k_ug: getScaled("vitamin_k"),
-      thiamin_mg: getScaled("thiamin"),
-      riboflavin_mg: getScaled("riboflavin"),
-      niacin_mg: getScaled("niacin"),
-      vitamin_b6_mg: getScaled("vitamin_b6"),
-      vitamin_b12_ug: getScaled("vitamin_b12"),
-      folate_ug: getScaled("folate"),
-      choline_mg: getScaled("choline"),
 
-      // Minerals
-      calcium_mg: getScaled("calcium"),
-      iron_mg: getScaled("iron"),
-      magnesium_mg: getScaled("magnesium"),
-      phosphorus_mg: getScaled("phosphorus"),
-      potassium_mg: getScaled("potassium"),
-      sodium_mg: getScaled("sodium"),
-      zinc_mg: getScaled("zinc"),
-      copper_mg: getScaled("copper"),
-      manganese_mg: getScaled("manganese"),
-      selenium_ug: getScaled("selenium"),
+    // Core macros
+    calories: Math.round((getNutrientValue(nutrients, NUTRIENT_MAP.calories) ?? 0) * scale),
+    protein: round((getNutrientValue(nutrients, NUTRIENT_MAP.protein) ?? 0) * scale) ?? 0,
+    carbs: carbs_val,
+    fat: round((getNutrientValue(nutrients, NUTRIENT_MAP.fat) ?? 0) * scale) ?? 0,
 
-      // Other
-      fiber_g: getScaled("fiber"),
-      sugar_g: getScaled("sugar"),
-      cholesterol_mg: getScaled("cholesterol"),
-      saturated_fat_g: getScaled("saturated_fat"),
-      monounsaturated_fat_g: getScaled("monounsaturated_fat"),
-      polyunsaturated_fat_g: getScaled("polyunsaturated_fat"),
-      trans_fat_g: getScaled("trans_fat"),
-      omega_3_g: omega3 || null,
-      omega_6_g: omega6 || null,
-    },
+    // Extended macros
+    fiber_g: fiber,
+    sugar_g: getScaled("sugar"),
+    sugar_alcohols_g: sugar_alcohols,
+    net_carbs: net_carbs,
+    cholesterol_mg: getScaled("cholesterol"),
+    saturated_fat_g: getScaled("saturated_fat"),
+    trans_fat_g: getScaled("trans_fat"),
+    monounsaturated_fat_g: getScaled("monounsaturated_fat"),
+    polyunsaturated_fat_g: getScaled("polyunsaturated_fat"),
+    omega_3_g: omega3 || null,
+    omega_6_g: omega6 || null,
+
+    // Vitamins
+    vitamin_a_ug: getScaled("vitamin_a"),
+    vitamin_c_mg: getScaled("vitamin_c"),
+    vitamin_d_ug: getScaled("vitamin_d"),
+    vitamin_e_mg: getScaled("vitamin_e"),
+    vitamin_k_ug: getScaled("vitamin_k"),
+    thiamin_mg: getScaled("thiamin"),
+    riboflavin_mg: getScaled("riboflavin"),
+    niacin_mg: getScaled("niacin"),
+    vitamin_b6_mg: getScaled("vitamin_b6"),
+    vitamin_b12_ug: getScaled("vitamin_b12"),
+    folate_ug: getScaled("folate"),
+    choline_mg: getScaled("choline"),
+
+    // Minerals
+    calcium_mg: getScaled("calcium"),
+    iron_mg: getScaled("iron"),
+    magnesium_mg: getScaled("magnesium"),
+    phosphorus_mg: getScaled("phosphorus"),
+    potassium_mg: getScaled("potassium"),
+    sodium_mg: getScaled("sodium"),
+    zinc_mg: getScaled("zinc"),
+    copper_mg: getScaled("copper"),
+    manganese_mg: getScaled("manganese"),
+    selenium_ug: getScaled("selenium"),
   };
 }
 

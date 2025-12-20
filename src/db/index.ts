@@ -1,6 +1,13 @@
 import lancedb from "@lancedb/lancedb";
 import type { Table, Connection } from "@lancedb/lancedb";
 import { generateEmbedding, EMBEDDING_DIMENSION } from "./embeddings";
+import {
+  NUTRIENT_KEYS,
+  toStorageNutrition,
+  fromStorageNutrition,
+  type FullNutrition,
+  type NutrientKey,
+} from "./nutrient-fields";
 import type {
   FoodInput,
   MealLogInput,
@@ -72,6 +79,47 @@ export async function initializeTables(): Promise<void> {
 }
 
 /**
+ * Create default nutrition record for table initialization
+ */
+function createDefaultNutritionRecord(): Record<NutrientKey, number> {
+  const record: Record<string, number> = {};
+  for (const key of NUTRIENT_KEYS) {
+    record[key] = 0;
+  }
+  return record as Record<NutrientKey, number>;
+}
+
+/**
+ * Goal nutrient keys (subset of all nutrients that can have goals)
+ */
+const GOAL_NUTRIENT_KEYS = [
+  "calories",
+  "protein",
+  "carbs",
+  "fat",
+  "fiber_g",
+  "sugar_g",
+  "net_carbs",
+  "cholesterol_mg",
+  "saturated_fat_g",
+  "sodium_mg",
+  "omega_3_g",
+  "omega_6_g",
+  "vitamin_a_ug",
+  "vitamin_c_mg",
+  "vitamin_d_ug",
+  "vitamin_e_mg",
+  "vitamin_k_ug",
+  "vitamin_b12_ug",
+  "folate_ug",
+  "calcium_mg",
+  "iron_mg",
+  "magnesium_mg",
+  "potassium_mg",
+  "zinc_mg",
+] as const;
+
+/**
  * Get or create foods table
  */
 export async function getFoodsTable(): Promise<Table> {
@@ -84,12 +132,10 @@ export async function getFoodsTable(): Promise<Table> {
         name: "__init__",
         brand: "",
         barcode: "",
-        calories: 0,
-        protein: 0,
-        carbs: 0,
-        fat: 0,
         serving_size: "",
+        serving_grams: 0,
         source: "custom",
+        ...createDefaultNutritionRecord(),
         vector: sampleVector,
       },
     ]);
@@ -115,13 +161,10 @@ export async function getMealLogsTable(): Promise<Table> {
         food_name: "__init__",
         quantity: 0,
         unit: "",
-        calories: 0,
-        protein: 0,
-        carbs: 0,
-        fat: 0,
         meal_type: "snack",
         logged_at: new Date().toISOString(),
         notes: "",
+        ...createDefaultNutritionRecord(),
         vector: sampleVector,
       },
     ]);
@@ -166,19 +209,14 @@ export async function getAuditLogsTable(): Promise<Table> {
 export async function getUserGoalsTable(): Promise<Table> {
   const conn = await getDb();
   if (!(await tableExists(USER_GOALS_TABLE))) {
-    await conn.createTable(USER_GOALS_TABLE, [
-      {
-        user_id: "__init__",
-        calories: 0,
-        protein: 0,
-        carbs: 0,
-        fat: 0,
-        fiber: 0,
-        sodium: 0,
-        sugar: 0,
-        updated_at: new Date().toISOString(),
-      },
-    ]);
+    const goalRecord: Record<string, number | string> = {
+      user_id: "__init__",
+      updated_at: new Date().toISOString(),
+    };
+    for (const key of GOAL_NUTRIENT_KEYS) {
+      goalRecord[key] = 0;
+    }
+    await conn.createTable(USER_GOALS_TABLE, [goalRecord]);
     const table = await conn.openTable(USER_GOALS_TABLE);
     await table.delete(`user_id = '__init__'`);
     return table;
@@ -193,12 +231,22 @@ export async function addFood(food: FoodInput): Promise<void> {
   const searchText = [food.name, food.brand].filter(Boolean).join(" ");
   const vector = await generateEmbedding(searchText);
 
-  await table.add([{
-    ...food,
-    brand: food.brand ?? "",
-    barcode: food.barcode ?? "",
-    vector,
-  }]);
+  // Convert nutrition to storage format (nulls -> 0)
+  const nutritionStorage = toStorageNutrition(food);
+
+  await table.add([
+    {
+      id: food.id,
+      name: food.name,
+      brand: food.brand ?? "",
+      barcode: food.barcode ?? "",
+      serving_size: food.serving_size,
+      serving_grams: food.serving_grams ?? 0,
+      source: food.source,
+      ...nutritionStorage,
+      vector,
+    },
+  ]);
 }
 
 export async function searchFoods(
@@ -213,17 +261,24 @@ export async function searchFoods(
   return results.map((r) => {
     const brand = r.brand as string;
     const barcode = r.barcode as string;
+    const serving_grams = r.serving_grams as number;
+
+    // Extract nutrition from storage
+    const nutritionStorage: Record<string, number> = {};
+    for (const key of NUTRIENT_KEYS) {
+      nutritionStorage[key] = (r[key] as number) ?? 0;
+    }
+    const nutrition = fromStorageNutrition(nutritionStorage);
+
     return {
       id: r.id as string,
       name: r.name as string,
       brand: brand === "" ? null : brand,
       barcode: barcode === "" ? null : barcode,
-      calories: r.calories as number,
-      protein: r.protein as number,
-      carbs: r.carbs as number,
-      fat: r.fat as number,
       serving_size: r.serving_size as string,
-      source: r.source as "openfoodfacts" | "usda" | "custom",
+      serving_grams: serving_grams === 0 ? null : serving_grams,
+      source: r.source as "openfoodfacts" | "usda" | "usda-local" | "custom",
+      ...nutrition,
     };
   });
 }
@@ -243,17 +298,24 @@ export async function getFoodByBarcode(
   const r = results[0];
   const brand = r.brand as string;
   const barcodeVal = r.barcode as string;
+  const serving_grams = r.serving_grams as number;
+
+  // Extract nutrition from storage
+  const nutritionStorage: Record<string, number> = {};
+  for (const key of NUTRIENT_KEYS) {
+    nutritionStorage[key] = (r[key] as number) ?? 0;
+  }
+  const nutrition = fromStorageNutrition(nutritionStorage);
+
   return {
     id: r.id as string,
     name: r.name as string,
     brand: brand === "" ? null : brand,
     barcode: barcodeVal === "" ? null : barcodeVal,
-    calories: r.calories as number,
-    protein: r.protein as number,
-    carbs: r.carbs as number,
-    fat: r.fat as number,
     serving_size: r.serving_size as string,
-    source: r.source as "openfoodfacts" | "usda" | "custom",
+    serving_grams: serving_grams === 0 ? null : serving_grams,
+    source: r.source as "openfoodfacts" | "usda" | "usda-local" | "custom",
+    ...nutrition,
   };
 }
 
@@ -266,12 +328,52 @@ export async function addMealLog(meal: MealLogInput): Promise<void> {
     .join(" ");
   const vector = await generateEmbedding(searchText);
 
-  await table.add([{
-    ...meal,
-    food_id: meal.food_id ?? "",
-    notes: meal.notes ?? "",
-    vector,
-  }]);
+  // Convert nutrition to storage format
+  const nutritionStorage = toStorageNutrition(meal);
+
+  await table.add([
+    {
+      id: meal.id,
+      user_id: meal.user_id,
+      food_id: meal.food_id ?? "",
+      food_name: meal.food_name,
+      quantity: meal.quantity,
+      unit: meal.unit,
+      meal_type: meal.meal_type,
+      logged_at: meal.logged_at,
+      notes: meal.notes ?? "",
+      ...nutritionStorage,
+      vector,
+    },
+  ]);
+}
+
+/**
+ * Helper to convert meal log from storage
+ */
+function mealFromStorage(r: Record<string, unknown>): MealLogInput {
+  const food_id = r.food_id as string;
+  const notes = r.notes as string;
+
+  // Extract nutrition from storage
+  const nutritionStorage: Record<string, number> = {};
+  for (const key of NUTRIENT_KEYS) {
+    nutritionStorage[key] = (r[key] as number) ?? 0;
+  }
+  const nutrition = fromStorageNutrition(nutritionStorage);
+
+  return {
+    id: r.id as string,
+    user_id: r.user_id as string,
+    food_id: food_id === "" ? null : food_id,
+    food_name: r.food_name as string,
+    quantity: r.quantity as number,
+    unit: r.unit as string,
+    meal_type: r.meal_type as "breakfast" | "lunch" | "dinner" | "snack",
+    logged_at: r.logged_at as string,
+    notes: notes === "" ? null : notes,
+    ...nutrition,
+  };
 }
 
 export async function getMealsByDate(
@@ -289,25 +391,7 @@ export async function getMealsByDate(
     )
     .toArray();
 
-  return results.map((r) => {
-    const food_id = r.food_id as string;
-    const notes = r.notes as string;
-    return {
-      id: r.id as string,
-      user_id: r.user_id as string,
-      food_id: food_id === "" ? null : food_id,
-      food_name: r.food_name as string,
-      quantity: r.quantity as number,
-      unit: r.unit as string,
-      calories: r.calories as number,
-      protein: r.protein as number,
-      carbs: r.carbs as number,
-      fat: r.fat as number,
-      meal_type: r.meal_type as "breakfast" | "lunch" | "dinner" | "snack",
-      logged_at: r.logged_at as string,
-      notes: notes === "" ? null : notes,
-    };
-  });
+  return results.map(mealFromStorage);
 }
 
 export async function getMealHistory(
@@ -328,25 +412,7 @@ export async function getMealHistory(
 
   const results = await table.query().where(whereClause).limit(limit).toArray();
 
-  return results.map((r) => {
-    const food_id = r.food_id as string;
-    const notes = r.notes as string;
-    return {
-      id: r.id as string,
-      user_id: r.user_id as string,
-      food_id: food_id === "" ? null : food_id,
-      food_name: r.food_name as string,
-      quantity: r.quantity as number,
-      unit: r.unit as string,
-      calories: r.calories as number,
-      protein: r.protein as number,
-      carbs: r.carbs as number,
-      fat: r.fat as number,
-      meal_type: r.meal_type as "breakfast" | "lunch" | "dinner" | "snack",
-      logged_at: r.logged_at as string,
-      notes: notes === "" ? null : notes,
-    };
-  });
+  return results.map(mealFromStorage);
 }
 
 export async function searchMealLogs(
@@ -363,25 +429,7 @@ export async function searchMealLogs(
     .limit(limit)
     .toArray();
 
-  return results.map((r) => {
-    const food_id = r.food_id as string;
-    const notes = r.notes as string;
-    return {
-      id: r.id as string,
-      user_id: r.user_id as string,
-      food_id: food_id === "" ? null : food_id,
-      food_name: r.food_name as string,
-      quantity: r.quantity as number,
-      unit: r.unit as string,
-      calories: r.calories as number,
-      protein: r.protein as number,
-      carbs: r.carbs as number,
-      fat: r.fat as number,
-      meal_type: r.meal_type as "breakfast" | "lunch" | "dinner" | "snack",
-      logged_at: r.logged_at as string,
-      notes: notes === "" ? null : notes,
-    };
-  });
+  return results.map(mealFromStorage);
 }
 
 // User goals operations
@@ -399,17 +447,18 @@ export async function setUserGoals(goals: UserGoals): Promise<void> {
     await table.delete(`user_id = '${goals.user_id}'`);
   }
 
-  await table.add([{
+  // Build storage record with all goal fields
+  const goalRecord: Record<string, number | string> = {
     user_id: goals.user_id,
-    calories: goals.calories,
-    protein: goals.protein ?? 0,
-    carbs: goals.carbs ?? 0,
-    fat: goals.fat ?? 0,
-    fiber: goals.fiber ?? 0,
-    sodium: goals.sodium ?? 0,
-    sugar: goals.sugar ?? 0,
     updated_at: goals.updated_at,
-  }]);
+  };
+
+  for (const key of GOAL_NUTRIENT_KEYS) {
+    const value = goals[key as keyof UserGoals];
+    goalRecord[key] = typeof value === "number" ? value : 0;
+  }
+
+  await table.add([goalRecord]);
 }
 
 export async function getUserGoals(userId: string): Promise<UserGoals | null> {
@@ -423,24 +472,24 @@ export async function getUserGoals(userId: string): Promise<UserGoals | null> {
   if (results.length === 0) return null;
 
   const r = results[0];
-  const protein = r.protein as number;
-  const carbs = r.carbs as number;
-  const fat = r.fat as number;
-  const fiber = r.fiber as number;
-  const sodium = r.sodium as number;
-  const sugar = r.sugar as number;
 
-  return {
+  // Build goals object, converting 0 back to undefined
+  const goals: Record<string, unknown> = {
     user_id: r.user_id as string,
-    calories: r.calories as number,
-    protein: protein === 0 ? null : protein,
-    carbs: carbs === 0 ? null : carbs,
-    fat: fat === 0 ? null : fat,
-    fiber: fiber === 0 ? null : fiber,
-    sodium: sodium === 0 ? null : sodium,
-    sugar: sugar === 0 ? null : sugar,
     updated_at: r.updated_at as string,
   };
+
+  for (const key of GOAL_NUTRIENT_KEYS) {
+    const value = r[key] as number;
+    // Calories is required, others are optional (0 = not set)
+    if (key === "calories") {
+      goals[key] = value;
+    } else {
+      goals[key] = value === 0 ? undefined : value;
+    }
+  }
+
+  return goals as UserGoals;
 }
 
 // Audit log operations
@@ -450,13 +499,15 @@ export async function addAuditLog(log: AuditLogInput): Promise<void> {
   const searchText = [log.content, log.tool_name].filter(Boolean).join(" ");
   const vector = await generateEmbedding(searchText);
 
-  await table.add([{
-    ...log,
-    tool_name: log.tool_name ?? "",
-    tool_input: log.tool_input ?? "",
-    tool_output: log.tool_output ?? "",
-    vector,
-  }]);
+  await table.add([
+    {
+      ...log,
+      tool_name: log.tool_name ?? "",
+      tool_input: log.tool_input ?? "",
+      tool_output: log.tool_output ?? "",
+      vector,
+    },
+  ]);
 }
 
 export async function searchAuditLogs(
@@ -491,6 +542,7 @@ export async function searchAuditLogs(
   });
 }
 
-// Re-export schemas
+// Re-export schemas and nutrient fields
 export * from "./schemas";
+export * from "./nutrient-fields";
 export { generateEmbedding, generateEmbeddings, EMBEDDING_DIMENSION } from "./embeddings";

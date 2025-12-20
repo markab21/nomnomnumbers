@@ -1,7 +1,12 @@
 import { z } from "zod";
+import {
+  fullNutritionSchema,
+  optionalNutritionSchema,
+  nutritionGoalsSchema,
+} from "./nutrient-fields";
 
 // Food sources
-export const foodSourceSchema = z.enum(["openfoodfacts", "usda", "custom"]);
+export const foodSourceSchema = z.enum(["openfoodfacts", "usda", "usda-local", "custom"]);
 
 // Meal types
 export const mealTypeSchema = z.enum(["breakfast", "lunch", "dinner", "snack"]);
@@ -11,35 +16,34 @@ export const auditRoleSchema = z.enum(["user", "assistant", "tool"]);
 
 // Food input schema (for creating/updating foods)
 // Note: using snake_case for LanceDB compatibility
-export const foodInputSchema = z.object({
-  id: z.string(),
-  name: z.string().min(1),
-  brand: z.string().nullable(),
-  barcode: z.string().nullable(),
-  calories: z.number().min(0),
-  protein: z.number().min(0),
-  carbs: z.number().min(0),
-  fat: z.number().min(0),
-  serving_size: z.string(),
-  source: foodSourceSchema,
-});
+// Includes full nutrition from shared schema
+export const foodInputSchema = z
+  .object({
+    id: z.string(),
+    name: z.string().min(1),
+    brand: z.string().nullable(),
+    barcode: z.string().nullable(),
+    serving_size: z.string(),
+    serving_grams: z.number().nullable(),
+    source: foodSourceSchema,
+  })
+  .merge(fullNutritionSchema);
 
 // Meal log input schema
-export const mealLogInputSchema = z.object({
-  id: z.string(),
-  user_id: z.string(),
-  food_id: z.string().nullable(),
-  food_name: z.string().min(1),
-  quantity: z.number().positive(),
-  unit: z.string(),
-  calories: z.number().min(0),
-  protein: z.number().min(0),
-  carbs: z.number().min(0),
-  fat: z.number().min(0),
-  meal_type: mealTypeSchema,
-  logged_at: z.string().datetime(),
-  notes: z.string().nullable(),
-});
+// Includes full nutrition for historical tracking
+export const mealLogInputSchema = z
+  .object({
+    id: z.string(),
+    user_id: z.string(),
+    food_id: z.string().nullable(),
+    food_name: z.string().min(1),
+    quantity: z.number().positive(),
+    unit: z.string(),
+    meal_type: mealTypeSchema,
+    logged_at: z.string().datetime(),
+    notes: z.string().nullable(),
+  })
+  .merge(fullNutritionSchema);
 
 // Audit log input schema
 export const auditLogInputSchema = z.object({
@@ -54,18 +58,17 @@ export const auditLogInputSchema = z.object({
   timestamp: z.string().datetime(),
 });
 
-// User goals schema - flexible nutrition targets
-export const userGoalsSchema = z.object({
-  user_id: z.string(),
-  calories: z.number().positive(),
-  protein: z.number().positive().nullable(),
-  carbs: z.number().positive().nullable(),       // Can be total or net carbs (user preference)
-  fat: z.number().positive().nullable(),
-  fiber: z.number().positive().nullable(),       // Daily fiber target (RDA: 25-38g)
-  sodium: z.number().positive().nullable(),      // Daily sodium max (RDA: <2300mg)
-  sugar: z.number().positive().nullable(),       // Daily sugar max (RDA: <50g added sugar)
-  updated_at: z.string().datetime(),
-});
+// User goals schema - full nutrition targets
+// All goals are optional except calories
+export const userGoalsSchema = z
+  .object({
+    user_id: z.string(),
+    updated_at: z.string().datetime(),
+  })
+  .merge(nutritionGoalsSchema)
+  .refine((data) => data.calories !== undefined, {
+    message: "Calories goal is required",
+  });
 
 // Tool input schemas for validation (these can stay camelCase as they're API-facing)
 export const searchFoodInputSchema = z.object({
@@ -77,18 +80,18 @@ export const lookupBarcodeInputSchema = z.object({
   barcode: z.string().min(1),
 });
 
-export const logMealInputSchema = z.object({
-  userId: z.string(),
-  foodName: z.string().min(1),
-  quantity: z.number().positive(),
-  unit: z.string().default("serving"),
-  mealType: mealTypeSchema,
-  calories: z.number().min(0).optional(),
-  protein: z.number().min(0).optional(),
-  carbs: z.number().min(0).optional(),
-  fat: z.number().min(0).optional(),
-  notes: z.string().nullable().optional(),
-});
+// Log meal input - includes all optional nutrition fields
+export const logMealInputSchema = z
+  .object({
+    userId: z.string(),
+    foodId: z.string().optional(), // If provided, can lookup nutrition from food
+    foodName: z.string().min(1),
+    quantity: z.number().positive(),
+    unit: z.string().default("serving"),
+    mealType: mealTypeSchema,
+    notes: z.string().nullable().optional(),
+  })
+  .merge(optionalNutritionSchema);
 
 export const getDailySummaryInputSchema = z.object({
   userId: z.string(),
@@ -102,16 +105,15 @@ export const getMealHistoryInputSchema = z.object({
   limit: z.number().int().positive().max(100).default(20),
 });
 
-export const setUserGoalsInputSchema = z.object({
-  userId: z.string(),
-  calories: z.number().positive(),
-  protein: z.number().positive().optional(),
-  carbs: z.number().positive().optional(),
-  fat: z.number().positive().optional(),
-  fiber: z.number().positive().optional(),
-  sodium: z.number().positive().optional(),
-  sugar: z.number().positive().optional(),
-});
+// Set user goals input - all nutrition goals optional except calories
+export const setUserGoalsInputSchema = z
+  .object({
+    userId: z.string(),
+  })
+  .merge(nutritionGoalsSchema)
+  .refine((data) => data.calories !== undefined, {
+    message: "Calories goal is required",
+  });
 
 export const getUserGoalsInputSchema = z.object({
   userId: z.string(),
