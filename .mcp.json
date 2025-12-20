@@ -1,0 +1,16 @@
+  {
+    "mcpServers": {
+      "oracle": {
+        "command": "oracle-mcp",
+        "args": ["--mcp"],
+        "env": {
+        }
+      },
+      "nomnomnumbers": {                                                                                                                             
+        "command": "bun",                                                                                                                            
+        "args": ["run", "/Users/markberry/Projects/nomnomnumbers/src/index.ts"]
+      }                                                                                                                                              
+
+    }
+  }
+
