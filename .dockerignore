@@ -1,0 +1,52 @@
+# Dependencies
+node_modules
+
+# Data directories (should be mounted as volumes)
+data/
+
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Environment files (secrets should be passed via env vars)
+.env
+.env.*
+
+# Build artifacts
+out
+dist
+*.tgz
+coverage
+*.lcov
+
+# Logs
+logs
+*.log
+
+# Cache
+.cache
+.eslintcache
+*.tsbuildinfo
+
+# Test files
+tests/
+*.test.ts
+*.spec.ts
+
+# Documentation
+*.md
+LICENSE
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose*.yml
