@@ -1,4 +1,5 @@
 import http from "node:http";
+import { randomUUID } from "node:crypto";
 import { MCPServer } from "@mastra/mcp";
 import { initializeTables } from "./db";
 import {
@@ -43,22 +44,60 @@ async function main() {
 
   // Check transport mode
   if (process.env.MCP_HTTP === "true") {
-    // Remote HTTP/SSE mode using Node.js http module
+    // Remote HTTP mode - supports both Streamable HTTP and legacy SSE
     const httpServer = http.createServer(async (req, res) => {
       const url = new URL(req.url || "", `http://localhost:${PORT}`);
-      await server.startSSE({
-        url,
-        ssePath: "/sse",
-        messagePath: "/message",
-        req,
-        res,
-      });
+
+      // Streamable HTTP transport (OpenWebUI compatible) at /mcp
+      if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) {
+        await server.startHTTP({
+          url,
+          httpPath: "/mcp",
+          req,
+          res,
+          options: {
+            sessionIdGenerator: () => randomUUID(),
+          },
+        });
+        return;
+      }
+
+      // Legacy SSE transport at /sse and /message
+      if (url.pathname === "/sse" || url.pathname === "/message") {
+        await server.startSSE({
+          url,
+          ssePath: "/sse",
+          messagePath: "/message",
+          req,
+          res,
+        });
+        return;
+      }
+
+      // Health check / info endpoint
+      if (url.pathname === "/" || url.pathname === "/health") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          name: "nomnomnumbers",
+          version: "1.0.0",
+          status: "ok",
+          transports: {
+            streamableHttp: "/mcp",
+            sse: "/sse",
+          },
+        }));
+        return;
+      }
+
+      res.writeHead(404);
+      res.end("Not found");
     });
 
     httpServer.listen(PORT, () => {
       console.log(`NomNom Numbers MCP server running on http://localhost:${PORT}`);
-      console.log(`  SSE endpoint: http://localhost:${PORT}/sse`);
-      console.log(`  Message endpoint: http://localhost:${PORT}/message`);
+      console.log(`  Streamable HTTP: http://localhost:${PORT}/mcp (OpenWebUI compatible)`);
+      console.log(`  SSE endpoint:    http://localhost:${PORT}/sse`);
+      console.log(`  Health check:    http://localhost:${PORT}/health`);
     });
   } else {
     // Local stdio mode (default)

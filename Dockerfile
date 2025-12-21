@@ -33,7 +33,7 @@ EXPOSE 3456
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:3456/sse || exit 1
+  CMD curl -f http://localhost:3456/health || exit 1
 
 # Run the MCP server in HTTP mode
 CMD ["bun", "run", "src/index.ts"]
