@@ -5,6 +5,7 @@ import {
   logMeal,
   getMealById,
   deleteMeal,
+  updateMeal,
   getMealsByDate,
   getMealHistory,
   getDailyTotals,
@@ -175,6 +176,17 @@ Commands:
     --notes <text>            Notes
     
   delete <id>                 Delete a logged meal by ID
+
+  edit <id> [options]         Edit a logged meal
+    --food <name>             Food name
+    --qty <n>                 Quantity
+    --unit <u>                Unit
+    --type <t>                Meal type
+    --calories <n>            Calories
+    --protein <n>             Protein (g)
+    --carbs <n>               Carbs (g)
+    --fat <n>                 Fat (g)
+    --notes <text>            Notes
 
   today                       Show today's meals and totals
     
@@ -455,6 +467,60 @@ To change settings:
         printResult(
           { success: true, id, foodName: meal!.foodName },
           `Deleted: ${meal!.foodName}`
+        );
+        break;
+      }
+
+      case "edit": {
+        const id = positional[0];
+        if (!id) printError("Usage: nomnom edit <id> [--food <name>] [--qty <n>] [--calories <n>] ...");
+
+        const existing = getMealById(id!);
+        if (!existing) printError(`Meal not found: ${id}`);
+
+        // Merge flags on top of existing values
+        const merged = {
+          foodName: flags.food || existing!.foodName,
+          quantity: parseOptionalFloat(flags.qty) ?? existing!.quantity,
+          unit: flags.unit || existing!.unit,
+          mealType: flags.type || existing!.mealType,
+          notes: flags.notes !== undefined ? flags.notes : existing!.notes,
+          calories: flags.calories !== undefined ? parseOptionalFloat(flags.calories) ?? null : existing!.calories,
+          protein: flags.protein !== undefined ? parseOptionalFloat(flags.protein) ?? null : existing!.protein,
+          carbs: flags.carbs !== undefined ? parseOptionalFloat(flags.carbs) ?? null : existing!.carbs,
+          fat: flags.fat !== undefined ? parseOptionalFloat(flags.fat) ?? null : existing!.fat,
+        };
+
+        // Same validation as log
+        if (!VALID_MEAL_TYPES.has(merged.mealType)) {
+          printError(`Invalid meal type "${merged.mealType}". Must be one of: breakfast, lunch, dinner, snack`);
+        }
+
+        // Determine which fields changed
+        const updated: string[] = [];
+        if (merged.foodName !== existing!.foodName) updated.push("food");
+        if (merged.quantity !== existing!.quantity) updated.push("quantity");
+        if (merged.unit !== existing!.unit) updated.push("unit");
+        if (merged.mealType !== existing!.mealType) updated.push("type");
+        if (merged.notes !== existing!.notes) updated.push("notes");
+        if (merged.calories !== existing!.calories) updated.push("calories");
+        if (merged.protein !== existing!.protein) updated.push("protein");
+        if (merged.carbs !== existing!.carbs) updated.push("carbs");
+        if (merged.fat !== existing!.fat) updated.push("fat");
+
+        if (updated.length === 0) {
+          printResult(
+            { success: true, id, foodName: merged.foodName, updated: [] },
+            `No changes to ${merged.foodName}`
+          );
+          break;
+        }
+
+        updateMeal(id!, merged);
+
+        printResult(
+          { success: true, id, foodName: merged.foodName, updated },
+          `Updated ${merged.foodName}: ${updated.join(", ")}`
         );
         break;
       }
