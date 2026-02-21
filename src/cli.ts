@@ -27,6 +27,7 @@ import {
   listCustomFoods,
   deleteCustomFood,
   searchCustomFoods,
+  lookupCustomBarcode,
   type FoodResult,
   type CustomFood,
   type MealResult,
@@ -488,6 +489,19 @@ To change settings:
       case "lookup": {
         const barcode = positional[0];
         if (!barcode) printError("Usage: nomnom lookup <barcode>");
+
+        // Check custom foods first
+        const customFood = lookupCustomBarcode(barcode!);
+        if (customFood) {
+          printResult(
+            { found: true, ...formatCustomFood(customFood) },
+            `[custom] ${customFood.description}${customFood.brand ? ` (${customFood.brand})` : ""}\n` +
+              `${customFood.calories ?? "?"} cal | ${customFood.protein ?? "?"}p ${customFood.carbs ?? "?"}c ${customFood.fat ?? "?"}f`
+          );
+          break;
+        }
+
+        // Fall back to USDA
         const usda = await ensureUSDA();
         if (!usda.ready) {
           printError(usda.error || "USDA database not available");
