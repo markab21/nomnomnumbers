@@ -401,7 +401,10 @@ To change settings:
     }
 
     case "today": {
+      const offsetDays = parseInt(flags.date ?? "0", 10);
+      const offset = isNaN(offsetDays) ? 0 : offsetDays;
       const now = new Date();
+      now.setDate(now.getDate() + offset);
       const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
       const meals = getMealsByDate(today);
       const totals = getDailyTotals(today);
