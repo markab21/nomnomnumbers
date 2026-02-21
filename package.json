@@ -17,7 +17,8 @@
     "seed:month": "bun scripts/seed-month.ts",
     "smoke:month": "bun scripts/smoke-test-month.ts",
     "smoke:goals": "bun scripts/smoke-test-goals.ts",
-    "smoke:tolerance": "bun scripts/smoke-test-tolerance.ts"
+    "smoke:tolerance": "bun scripts/smoke-test-tolerance.ts",
+    "smoke:mcp": "bun scripts/smoke-test-mcp.ts"
   },
   "repository": {
     "type": "git",
