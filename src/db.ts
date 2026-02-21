@@ -609,7 +609,7 @@ export function setGoal(key: string, target: number, direction?: "under" | "over
   if (!VALID_GOAL_KEYS.has(key)) throw new Error(`Invalid goal key: ${key}`);
   const db = getDb();
   const dir = direction ?? DEFAULT_DIRECTIONS[key] ?? "under";
-  const tol = tolerance ?? 0;
+  const tol = Math.max(0, Math.min(100, tolerance ?? 0));
   db.query(
     `INSERT INTO goals (key, target, direction, tolerance, updated_at)
      VALUES (?, ?, ?, ?, datetime('now'))
@@ -622,9 +622,10 @@ export function setGoalTolerance(key: string, tolerance: number): void {
   const db = getDb();
   const existing = db.query("SELECT key FROM goals WHERE key = ?").get(key);
   if (!existing) throw new Error(`No goal set for ${key}. Set a target first.`);
+  const tol = Math.max(0, Math.min(100, tolerance));
   db.query(
     "UPDATE goals SET tolerance = ?, updated_at = datetime('now') WHERE key = ?"
-  ).run(tolerance, key);
+  ).run(tol, key);
 }
 
 export function getGoals(): Goal[] {

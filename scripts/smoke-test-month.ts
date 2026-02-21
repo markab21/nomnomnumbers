@@ -16,9 +16,12 @@ const dbPath = join(dataDir, "nomnom.db");
 const projectRoot = new URL("..", import.meta.url).pathname;
 
 // ---- Reset DB ----
-if (existsSync(dbPath)) {
-  rmSync(dbPath);
-  console.log(`Reset DB: ${dbPath}`);
+for (const suffix of ["", "-wal", "-shm"]) {
+  const p = dbPath + suffix;
+  if (existsSync(p)) {
+    rmSync(p);
+    if (suffix === "") console.log(`Reset DB: ${dbPath}`);
+  }
 }
 
 // ---- Run seeder ----

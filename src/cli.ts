@@ -500,6 +500,9 @@ To change settings:
       for (const m of macros) {
         const val = parseOptionalFloat(flags[m]);
         const tolVal = parseOptionalFloat(flags[`${m}-tolerance`]);
+        if (tolVal !== undefined && (tolVal < 0 || tolVal > 100)) {
+          printError(`Invalid ${m}-tolerance ${tolVal}: must be 0-100`);
+        }
         if (val !== undefined) {
           const dirFlag = flags[`${m}-direction`];
           const direction = dirFlag === "over" || dirFlag === "under" ? dirFlag : undefined;

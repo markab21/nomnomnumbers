@@ -14,6 +14,8 @@ const dbPath = join(dataDir, "nomnom.db");
 const projectRoot = new URL("..", import.meta.url).pathname;
 
 if (existsSync(dbPath)) rmSync(dbPath);
+if (existsSync(dbPath + "-wal")) rmSync(dbPath + "-wal");
+if (existsSync(dbPath + "-shm")) rmSync(dbPath + "-shm");
 
 let passed = 0;
 let failed = 0;
@@ -50,7 +52,10 @@ function runScript(...args: string[]): { stdout: string; stderr: string; exitCod
 }
 
 function resetDb(): void {
-  if (existsSync(dbPath)) rmSync(dbPath);
+  for (const suffix of ["", "-wal", "-shm"]) {
+    const p = dbPath + suffix;
+    if (existsSync(p)) rmSync(p);
+  }
 }
 
 // ============================================================
@@ -256,6 +261,42 @@ check("Test 10: progress exits 0", humanProg.exitCode === 0, `exit=${humanProg.e
 check("Test 10: human output contains [near]",
   humanProg.stdout.includes("[near]"),
   `output: ${humanProg.stdout.slice(0, 300)}`);
+
+// ============================================================
+// Test 11: Tolerance validation (reject out-of-range values)
+// ============================================================
+console.log("\n--- Test 11: Tolerance validation (reject out-of-range) ---");
+resetDb();
+
+// Negative tolerance → error
+const negTol = run("goals", "--calories", "2000", "--calories-tolerance", "-5");
+check("Test 11a: negative tolerance exits 1", negTol.exitCode === 1, `exit=${negTol.exitCode}`);
+check("Test 11a: stderr has error",
+  negTol.stderr.includes("must be 0-100"),
+  `stderr: ${negTol.stderr.slice(0, 200)}`);
+
+// Tolerance > 100 → error
+const bigTol = run("goals", "--calories", "2000", "--calories-tolerance", "150");
+check("Test 11b: tolerance > 100 exits 1", bigTol.exitCode === 1, `exit=${bigTol.exitCode}`);
+check("Test 11b: stderr has error",
+  bigTol.stderr.includes("must be 0-100"),
+  `stderr: ${bigTol.stderr.slice(0, 200)}`);
+
+// Edge: tolerance = 0 → accepted
+const zeroTol = run("goals", "--calories", "2000", "--calories-tolerance", "0");
+check("Test 11c: tolerance 0 exits 0", zeroTol.exitCode === 0, `exit=${zeroTol.exitCode}`);
+
+// Edge: tolerance = 100 → accepted
+const maxTol = run("goals", "--calories-tolerance", "100");
+check("Test 11d: tolerance 100 exits 0", maxTol.exitCode === 0, `exit=${maxTol.exitCode}`);
+
+// Verify the stored values
+const g11 = JSON.parse(run("goals").stdout);
+check("Test 11e: tolerance stored as 100", g11.goals.calories.tolerance === 100, `got ${g11.goals?.calories?.tolerance}`);
+
+// Tolerance-only negative → error (no target, just tolerance flag)
+const tolOnlyNeg = run("goals", "--protein-tolerance", "-10");
+check("Test 11f: tolerance-only negative exits 1", tolOnlyNeg.exitCode === 1, `exit=${tolOnlyNeg.exitCode}`);
 
 // ============================================================
 // Summary

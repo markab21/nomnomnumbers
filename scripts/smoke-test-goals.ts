@@ -14,7 +14,10 @@ const dbPath = join(dataDir, "nomnom.db");
 const projectRoot = new URL("..", import.meta.url).pathname;
 
 // Reset
-if (existsSync(dbPath)) rmSync(dbPath);
+for (const suffix of ["", "-wal", "-shm"]) {
+  const p = dbPath + suffix;
+  if (existsSync(p)) rmSync(p);
+}
 
 let passed = 0;
 let failed = 0;
