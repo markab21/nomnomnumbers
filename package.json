@@ -1,6 +1,6 @@
 {
   "name": "nomnomnumbers",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Nutrition tracking CLI for AI agents — food search, barcode lookup, meal logging with JSON output",
   "module": "src/cli.ts",
   "type": "module",
