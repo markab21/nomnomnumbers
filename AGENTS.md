@@ -23,6 +23,43 @@ All commands output JSON to **stdout** by default. Add `--human` or `-h` after a
 
 > **Note:** `bun start -h` shows help and exits. Use `-h` after a command, e.g. `bun start today -h`.
 
+## MCP Server
+
+NomNom Numbers includes an MCP (Model Context Protocol) server for AI agent integration.
+
+### Starting the MCP server
+
+```bash
+nomnom mcp                    # After global install
+bunx nomnomnumbers mcp        # Remote execution
+nomnom-mcp                    # Direct binary
+```
+
+### MCP Configuration
+
+For Claude Desktop or similar tools:
+
+```json
+{
+  "mcpServers": {
+    "nomnom": {
+      "command": "bunx",
+      "args": ["nomnomnumbers", "mcp"]
+    }
+  }
+}
+```
+
+### Tool: nomnom
+
+Single tool that accepts any CLI command string and returns JSON.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| command | string | yes | CLI command to run, e.g. "search chicken breast --limit 5" |
+
+The tool returns the same JSON the CLI outputs. Run with command "help" for full usage.
+
 ### Output Contract (important for programmatic use)
 
 | Stream | Content |
@@ -284,6 +321,8 @@ bun run typecheck                  # Run tsc --noEmit
 bun run import:usda                # Import USDA data (requires ZIP download)
 bun run smoke:goals                # Run goals/progress smoke test
 bun run smoke:tolerance              # Run tolerance band smoke test
+npm publish                        # Publish to npm (requires npm login)
+npm pack --dry-run                 # Preview published files
 ```
 
 ## Project Structure
