@@ -196,6 +196,7 @@ When resetting: `{ "success": true }`
 - `--carbs <n>` - Daily carbs target (g)
 - `--fat <n>` - Daily fat target (g)
 - `--<macro>-direction <d>` - Goal direction: `under` or `over` (default: calories/carbs/fat=under, protein=over)
+- `--<macro>-tolerance <n>` - Tolerance percentage (0-100) for grace zone
 - `--reset` - Clear all goals
 
 Set goals:
@@ -207,10 +208,10 @@ View goals:
 ```json
 {
   "goals": {
-    "calories": { "target": 2000, "direction": "under" },
-    "protein": { "target": 120, "direction": "over" },
-    "carbs": { "target": 250, "direction": "under" },
-    "fat": { "target": 65, "direction": "under" },
+    "calories": { "target": 2000, "direction": "under", "tolerance": 10 },
+    "protein": { "target": 120, "direction": "over", "tolerance": 15 },
+    "carbs": { "target": 250, "direction": "under", "tolerance": 0 },
+    "fat": { "target": 65, "direction": "under", "tolerance": 0 },
     "updatedAt": "2026-02-21 12:00:00"
   }
 }
@@ -234,12 +235,12 @@ Reset:
 {
   "date": "2026-02-21",
   "goals": {
-    "calories": { "target": 2000, "direction": "under" },
-    "protein": { "target": 120, "direction": "over" }
+    "calories": { "target": 2000, "direction": "under", "tolerance": 10 },
+    "protein": { "target": 120, "direction": "over", "tolerance": 15 }
   },
   "today": {
-    "calories": { "actual": 1500, "goal": 2000, "remaining": 500, "percent": 75 },
-    "protein": { "actual": 95, "goal": 120, "remaining": 25, "percent": 79 },
+    "calories": { "actual": 1500, "goal": 2000, "remaining": 500, "percent": 75, "tolerance": 10, "band": 2200, "zone": "met" },
+    "protein": { "actual": 95, "goal": 120, "remaining": 25, "percent": 79, "tolerance": 15, "band": 102, "zone": "near" },
     "mealCount": 3
   },
   "streaks": {
@@ -264,6 +265,15 @@ Streak semantics:
 - Days with no meals break the streak
 - `allGoals` streak requires ALL goals to be met on each day
 
+Tolerance/zone semantics:
+- Tolerance is a percentage (0-100) per goal creating a grace zone
+- `zone: "met"` means actual is on the correct side of the target
+- `zone: "near"` means actual is within the grace zone (tolerance > 0 only)
+- `zone: "over"` or `"under"` means actual missed the goal beyond the grace zone
+- `band` is the computed edge of the grace zone
+- Both "met" and "near" sustain streaks
+- Tolerance defaults to 0 (no grace zone, binary met/missed behavior)
+
 ## Build & Development Commands
 
 ```bash
@@ -273,6 +283,7 @@ bun run dev                        # Run with watch mode
 bun run typecheck                  # Run tsc --noEmit
 bun run import:usda                # Import USDA data (requires ZIP download)
 bun run smoke:goals                # Run goals/progress smoke test
+bun run smoke:tolerance              # Run tolerance band smoke test
 ```
 
 ## Project Structure
@@ -379,6 +390,13 @@ bun start progress --human
 
 # Run goals smoke test
 bun run smoke:goals
+
+# Test tolerance
+bun start goals --calories 2000 --calories-tolerance 10 --human
+bun start progress --human
+
+# Run tolerance smoke test
+bun run smoke:tolerance
 ```
 
 ## Commit Guidelines
