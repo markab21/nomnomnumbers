@@ -296,9 +296,17 @@ function initTables(db: Database) {
       key TEXT PRIMARY KEY,
       target REAL NOT NULL,
       direction TEXT NOT NULL DEFAULT 'under',
+      tolerance REAL NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+
+  // Migration: add tolerance column if missing (existing databases)
+  try {
+    db.exec("ALTER TABLE goals ADD COLUMN tolerance REAL NOT NULL DEFAULT 0");
+  } catch {
+    // Column already exists — ignore
+  }
 }
 
 export interface FoodResult {
@@ -585,6 +593,7 @@ export interface Goal {
   key: string;
   target: number;
   direction: "under" | "over";
+  tolerance: number;
   updatedAt: string;
 }
 
@@ -596,26 +605,38 @@ const DEFAULT_DIRECTIONS: Record<string, "under" | "over"> = {
   fat: "under",
 };
 
-export function setGoal(key: string, target: number, direction?: "under" | "over"): void {
+export function setGoal(key: string, target: number, direction?: "under" | "over", tolerance?: number): void {
   if (!VALID_GOAL_KEYS.has(key)) throw new Error(`Invalid goal key: ${key}`);
   const db = getDb();
   const dir = direction ?? DEFAULT_DIRECTIONS[key] ?? "under";
+  const tol = tolerance ?? 0;
   db.query(
-    `INSERT INTO goals (key, target, direction, updated_at)
-     VALUES (?, ?, ?, datetime('now'))
-     ON CONFLICT(key) DO UPDATE SET target = excluded.target, direction = excluded.direction, updated_at = datetime('now')`
-  ).run(key, target, dir);
+    `INSERT INTO goals (key, target, direction, tolerance, updated_at)
+     VALUES (?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(key) DO UPDATE SET target = excluded.target, direction = excluded.direction, tolerance = excluded.tolerance, updated_at = datetime('now')`
+  ).run(key, target, dir, tol);
+}
+
+export function setGoalTolerance(key: string, tolerance: number): void {
+  if (!VALID_GOAL_KEYS.has(key)) throw new Error(`Invalid goal key: ${key}`);
+  const db = getDb();
+  const existing = db.query("SELECT key FROM goals WHERE key = ?").get(key);
+  if (!existing) throw new Error(`No goal set for ${key}. Set a target first.`);
+  db.query(
+    "UPDATE goals SET tolerance = ?, updated_at = datetime('now') WHERE key = ?"
+  ).run(tolerance, key);
 }
 
 export function getGoals(): Goal[] {
   const db = getDb();
   const rows = db.query(
-    `SELECT key, target, direction, updated_at FROM goals ORDER BY key`
-  ).all() as Array<{ key: string; target: number; direction: string; updated_at: string }>;
+    `SELECT key, target, direction, tolerance, updated_at FROM goals ORDER BY key`
+  ).all() as Array<{ key: string; target: number; direction: string; tolerance: number; updated_at: string }>;
   return rows.map((r) => ({
     key: r.key,
     target: r.target,
     direction: r.direction as "under" | "over",
+    tolerance: r.tolerance,
     updatedAt: r.updated_at,
   }));
 }
