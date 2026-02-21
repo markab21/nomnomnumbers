@@ -18,7 +18,8 @@
     "smoke:month": "bun scripts/smoke-test-month.ts",
     "smoke:goals": "bun scripts/smoke-test-goals.ts",
     "smoke:tolerance": "bun scripts/smoke-test-tolerance.ts",
-    "smoke:mcp": "bun scripts/smoke-test-mcp.ts"
+    "smoke:mcp": "bun scripts/smoke-test-mcp.ts",
+    "smoke:crud": "bun scripts/smoke-test-crud.ts"
   },
   "repository": {
     "type": "git",
