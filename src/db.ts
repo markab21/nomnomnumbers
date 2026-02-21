@@ -508,6 +508,38 @@ export function deleteMeal(id: string): boolean {
   return result.changes > 0;
 }
 
+export function updateMeal(id: string, input: {
+  foodName: string;
+  quantity: number;
+  unit: string;
+  mealType: string;
+  notes: string | null;
+  calories: number | null;
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
+}): boolean {
+  const db = getDb();
+  const result = db.query(`
+    UPDATE meals SET
+      food_name = ?, quantity = ?, unit = ?, meal_type = ?, notes = ?,
+      calories = ?, protein = ?, carbs = ?, fat = ?
+    WHERE id = ?
+  `).run(
+    input.foodName,
+    input.quantity,
+    input.unit,
+    input.mealType,
+    input.notes,
+    input.calories,
+    input.protein,
+    input.carbs,
+    input.fat,
+    id
+  );
+  return result.changes > 0;
+}
+
 export function getMealsByDate(date: string): MealResult[] {
   const db = getDb();
   const stmt = db.query(`
