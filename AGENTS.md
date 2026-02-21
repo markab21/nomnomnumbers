@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-NomNom Numbers is a CLI-based nutrition tracking tool for AI agents. It provides food search via USDA SQLite with FTS5, barcode lookup, and meal logging - all outputting JSON for easy parsing by AI tools.
+NomNom Numbers is a CLI-based nutrition tracking tool for AI agents. It provides food search via USDA SQLite with FTS5, barcode lookup, custom food management, and meal logging - all outputting JSON for easy parsing by AI tools.
 
 ## CLI Commands
 
@@ -12,11 +12,16 @@ bun start init                    # Initialize database (auto-runs on first use)
 bun start search "chicken breast" # Search foods (JSON output)
 bun start lookup 00000000924665   # Lookup by barcode
 bun start log "eggs" --calories 150 --protein 12  # Log a meal
+bun start delete <id>                             # Delete a logged meal
+bun start edit <id> --calories 200                 # Edit a logged meal
 bun start today                   # Today's summary
 bun start history --limit 10      # Meal history
 bun start config                  # View configuration
 bun start goals --calories 2000 --protein 120  # Set daily goals
 bun start progress                              # Progress vs goals
+bun start foods add "My Shake" --calories 400      # Add custom food
+bun start foods list                               # List custom foods
+bun start foods delete <id>                        # Delete custom food
 ```
 
 All commands output JSON to **stdout** by default. Add `--human` or `-h` after a command for readable format.
@@ -76,7 +81,7 @@ Flags support both `--flag value` and `--flag=value` syntax. Negative numeric va
 - Invalid `--limit` values (NaN, < 1) silently use the default; values above max are capped
 - Invalid `--calories`, `--protein`, etc. (NaN) are silently ignored (treated as not provided)
 - Invalid `--type` values produce a JSON error on stderr and exit 1
-- Missing required arguments (no query for search, no barcode for lookup, no food for log) produce a JSON error and exit 1
+- Missing required arguments (no query for search, no barcode for lookup, no food for log, no ID for delete/edit, no name for `foods add`, no ID for `foods delete`) produce a JSON error and exit 1
 
 **Stderr messages during normal operation:**
 - First run: `Initialized database at <path>`
@@ -106,6 +111,7 @@ With `--download-usda`:
 **search \<query\>**
 - `--limit <n>` - Max results (default: 10, max: 100)
 - Auto-downloads USDA database if missing
+- Returns custom foods first, then USDA results; `--limit` applies per source independently
 
 ```json
 {
@@ -113,6 +119,7 @@ With `--download-usda`:
   "count": 2,
   "results": [
     {
+      "source": "usda",
       "fdcId": 123456,
       "description": "Big Mac",
       "brand": "McDonald's",
@@ -130,15 +137,17 @@ With `--download-usda`:
 }
 ```
 
-Fields `brand`, `barcode`, `servingSize`, `fiber`, `sugar`, `sodium` may be `null`.
+Fields `brand`, `barcode`, `servingSize`, `fiber`, `sugar`, `sodium` may be `null`. Custom food results have `"source": "custom"` and `id` (UUID) instead of `fdcId`.
 
 **lookup \<barcode\>**
+- Checks custom foods first, then USDA
 - Auto-downloads USDA database if missing
 
-Found:
+Found (USDA):
 ```json
 {
   "found": true,
+  "source": "usda",
   "fdcId": 123456,
   "description": "Quest Bar",
   "brand": "Quest Nutrition",
@@ -153,6 +162,8 @@ Found:
   "sodium": 300
 }
 ```
+
+Custom food results have `"source": "custom"` and `id` (UUID) instead of `fdcId`.
 
 Not found:
 ```json
@@ -169,6 +180,80 @@ Not found:
 ```json
 { "success": true, "id": "uuid", "foodName": "Eggs", "quantity": 2 }
 ```
+
+**delete \<id\>**
+
+Delete a logged meal by its UUID.
+
+```json
+{ "success": true, "id": "uuid", "foodName": "Eggs" }
+```
+
+Error (meal not found): JSON error on stderr, exit 1.
+
+**edit \<id\> [options]**
+- `--food <name>` - Food name
+- `--qty <n>` - Quantity
+- `--unit <u>` - Unit
+- `--type <t>` - Meal type
+- `--calories <n>`, `--protein <n>`, `--carbs <n>`, `--fat <n>`
+- `--notes <text>`
+
+Read-merge-validate-write pattern: fetches existing meal, merges provided flags on top, validates (same rules as `log`), replaces row.
+
+```json
+{ "success": true, "id": "uuid", "foodName": "Eggs", "updated": ["calories", "fat"] }
+```
+
+No changes: `{ "success": true, "id": "uuid", "foodName": "Eggs", "updated": [] }`
+
+Error (meal not found or invalid type): JSON error on stderr, exit 1.
+
+**foods [subcommand]**
+
+Manage custom foods stored in the meal database.
+
+`foods add <name> [options]`
+- `--calories <n>`, `--protein <n>`, `--carbs <n>`, `--fat <n>`
+- `--fiber <n>`, `--sugar <n>`, `--sodium <n>`
+- `--serving <text>` - Serving size description
+- `--brand <text>` - Brand name
+- `--barcode <text>` - Barcode
+
+```json
+{ "success": true, "id": "uuid", "name": "Huel Black" }
+```
+
+`foods list`
+
+```json
+{
+  "count": 1,
+  "foods": [{
+    "id": "uuid",
+    "name": "Huel Black",
+    "brand": "Huel",
+    "barcode": null,
+    "servingSize": "1 bottle",
+    "calories": 400,
+    "protein": 40,
+    "carbs": 37,
+    "fat": 13,
+    "fiber": null,
+    "sugar": null,
+    "sodium": null,
+    "createdAt": "2026-02-21 12:00:00"
+  }]
+}
+```
+
+`foods delete <id>`
+
+```json
+{ "success": true, "id": "uuid", "name": "Huel Black" }
+```
+
+Error (not found): JSON error on stderr, exit 1.
 
 **today**
 
@@ -321,6 +406,7 @@ bun run typecheck                  # Run tsc --noEmit
 bun run import:usda                # Import USDA data (requires ZIP download)
 bun run smoke:goals                # Run goals/progress smoke test
 bun run smoke:tolerance              # Run tolerance band smoke test
+bun run smoke:crud                 # Run delete/edit/custom foods smoke test
 npm publish                        # Publish to npm (requires npm login)
 npm pack --dry-run                 # Preview published files
 ```
@@ -381,6 +467,7 @@ Override with environment variables:
 - SQLite with WAL mode
 - FTS5 virtual table for food search
 - `snake_case` in DB, `camelCase` in JSON output
+- Custom foods table (`custom_foods`) and its FTS5 index are stored in the meal database (`nomnom.db`), not the USDA database
 
 ## USDA Database
 
@@ -436,6 +523,24 @@ bun start progress --human
 
 # Run tolerance smoke test
 bun run smoke:tolerance
+
+# Test custom foods
+bun start foods add "My Shake" --calories 400 --protein 30 --brand "Custom" --human
+bun start foods list --human
+bun start search "shake" --human   # Shows custom + USDA results with [source] tags
+
+# Test delete
+bun start log "To Delete" --calories 100
+# Copy the id from output
+bun start delete <id>
+
+# Test edit
+bun start log "To Edit" --calories 100 --protein 10
+# Copy the id from output
+bun start edit <id> --calories 200 --fat 15 --human
+
+# Run CRUD smoke test
+bun run smoke:crud
 ```
 
 ## Commit Guidelines
