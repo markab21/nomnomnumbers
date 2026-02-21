@@ -11,7 +11,9 @@
     "start": "bun run src/cli.ts",
     "dev": "bun --watch run src/cli.ts",
     "typecheck": "bunx tsc --noEmit",
-    "import:usda": "bun run src/db/usda-import.ts"
+    "import:usda": "bun run src/db/usda-import.ts",
+    "seed:month": "bun scripts/seed-month.ts",
+    "smoke:month": "bun scripts/smoke-test-month.ts"
   },
   "dependencies": {},
   "devDependencies": {
