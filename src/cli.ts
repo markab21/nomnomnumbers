@@ -26,7 +26,9 @@ import {
   addCustomFood,
   listCustomFoods,
   deleteCustomFood,
+  searchCustomFoods,
   type FoodResult,
+  type CustomFood,
   type MealResult,
   getAllDailyTotals,
   type Goal,
@@ -120,6 +122,25 @@ function formatFood(food: FoodResult): Record<string, unknown> {
     fiber: food.fiber,
     sugar: food.sugar,
     sodium: food.sodium,
+    source: "usda",
+  };
+}
+
+function formatCustomFood(f: CustomFood): Record<string, unknown> {
+  return {
+    id: f.id,
+    description: f.description,
+    brand: f.brand,
+    barcode: f.barcode,
+    servingSize: f.servingSize,
+    calories: f.calories,
+    protein: f.protein,
+    carbs: f.carbs,
+    fat: f.fat,
+    fiber: f.fiber,
+    sugar: f.sugar,
+    sodium: f.sodium,
+    source: "custom",
   };
 }
 
@@ -433,19 +454,30 @@ To change settings:
         const query = positional.join(" ");
         if (!query) printError("Usage: nomnom search <query>");
         const limit = parsePositiveInt(flags.limit, 10, 100);
+
+        // Search custom foods first (no USDA dependency)
+        const customResults = searchCustomFoods(query, limit);
+
+        // Search USDA
         const usda = await ensureUSDA();
-        if (!usda.ready) {
-          printError(usda.error || "USDA database not available");
+        let usdaResults: FoodResult[] = [];
+        if (usda.ready) {
+          usdaResults = searchFoods(query, limit);
         }
-        const results = searchFoods(query, limit);
+
+        const allResults = [
+          ...customResults.map(formatCustomFood),
+          ...usdaResults.map(formatFood),
+        ];
+
         printResult(
-          { query, count: results.length, results: results.map(formatFood) },
-          results.length === 0
+          { query, count: allResults.length, results: allResults },
+          allResults.length === 0
             ? `No results for "${query}"`
-            : results
+            : allResults
                 .map(
                   (f, i) =>
-                    `${i + 1}. ${f.description}${f.brand ? ` (${f.brand})` : ""}\n` +
+                    `${i + 1}. [${f.source}] ${f.description}${f.brand ? ` (${f.brand})` : ""}\n` +
                     `   ${f.calories ?? "?"} cal | ${f.protein ?? "?"}p ${f.carbs ?? "?"}c ${f.fat ?? "?"}f`
                 )
                 .join("\n\n")
