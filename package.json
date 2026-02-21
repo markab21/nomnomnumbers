@@ -1,0 +1,23 @@
+{
+  "name": "nomnomnumbers",
+  "version": "2.0.0",
+  "module": "src/cli.ts",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "nomnom": "./src/cli.ts"
+  },
+  "scripts": {
+    "start": "bun run src/cli.ts",
+    "dev": "bun --watch run src/cli.ts",
+    "typecheck": "bunx tsc --noEmit",
+    "import:usda": "bun run src/db/usda-import.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
