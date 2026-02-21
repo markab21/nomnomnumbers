@@ -16,8 +16,12 @@ import {
   initializeDatabase,
   downloadUSDADatabase,
   usdaDbExists,
+  setGoal,
+  getGoals,
+  resetGoals,
   type FoodResult,
   type MealResult,
+  type Goal,
 } from "./db";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -202,6 +206,17 @@ Commands:
   history [options]           Show meal history
     --limit <n>               Max results (default: 20)
     
+  goals [options]              View or set daily nutrition goals
+    --calories <n>             Daily calorie target
+    --protein <n>              Daily protein target (g)
+    --carbs <n>                Daily carbs target (g)
+    --fat <n>                  Daily fat target (g)
+    --<macro>-direction <d>    Goal direction: under or over
+    --reset                    Clear all goals
+
+  progress [options]           Show progress vs goals (streaks, weekly avg)
+    --date <n>                 Day offset (0=today, -1=yesterday)
+
   config [options]            View or set configuration
     --set-data-dir <path>     Set data directory
     --set-usda-path <path>    Set USDA database path
@@ -440,6 +455,60 @@ To change settings:
                     `  ${m.calories ?? "?"} cal | ${m.protein ?? "?"}p ${m.carbs ?? "?"}c ${m.fat ?? "?"}f`
               )
               .join("\n\n")
+      );
+      break;
+    }
+
+    case "goals": {
+      // Reset
+      if (flags.reset) {
+        resetGoals();
+        printResult({ success: true }, "Goals reset");
+        break;
+      }
+
+      // Set goals (at least one macro flag required)
+      const macros = ["calories", "protein", "carbs", "fat"] as const;
+      const toSet: Array<{ key: string; target: number; direction?: "under" | "over" }> = [];
+      for (const m of macros) {
+        const val = parseOptionalFloat(flags[m]);
+        if (val !== undefined) {
+          const dirFlag = flags[`${m}-direction`];
+          const direction = dirFlag === "over" || dirFlag === "under" ? dirFlag : undefined;
+          toSet.push({ key: m, target: val, direction });
+        }
+      }
+
+      if (toSet.length > 0) {
+        for (const g of toSet) {
+          setGoal(g.key, g.target, g.direction);
+        }
+        printResult(
+          { success: true, goalsSet: toSet.map((g) => g.key) },
+          `Goals set: ${toSet.map((g) => `${g.key}=${g.target}`).join(", ")}`
+        );
+        break;
+      }
+
+      // View goals
+      const goals = getGoals();
+      if (goals.length === 0) {
+        printResult({ goals: null }, "No goals set. Use: nomnom goals --calories 2000 --protein 120");
+        break;
+      }
+
+      const goalsObj: Record<string, { target: number; direction: string }> = {};
+      let latestUpdate = "";
+      for (const g of goals) {
+        goalsObj[g.key] = { target: g.target, direction: g.direction };
+        if (g.updatedAt > latestUpdate) latestUpdate = g.updatedAt;
+      }
+
+      printResult(
+        { goals: { ...goalsObj, updatedAt: latestUpdate } },
+        goals
+          .map((g) => `${g.key}: ${g.target} (${g.direction})`)
+          .join("\n") + `\n\nLast updated: ${latestUpdate}`
       );
       break;
     }
