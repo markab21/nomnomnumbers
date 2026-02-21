@@ -29,8 +29,18 @@ import {
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-const args = process.argv.slice(2);
-const command = args[0];
+export interface CommandResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+
+class CliError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CliError";
+  }
+}
 
 function parseFlags(args: string[]): { flags: Record<string, string>; positional: string[] } {
   const flags: Record<string, string> = {};
@@ -123,48 +133,6 @@ function formatMeal(meal: MealResult): Record<string, unknown> {
   };
 }
 
-let humanMode = false;
-
-function printResult(data: unknown, human?: string) {
-  if (humanMode) {
-    console.log(human || JSON.stringify(data, null, 2));
-  } else {
-    console.log(JSON.stringify(data, null, 2));
-  }
-}
-
-function printError(message: string): never {
-  console.error(JSON.stringify({ error: message }));
-  process.exit(1);
-}
-
-async function ensureUSDA(autoDownload: boolean = true): Promise<{ ready: boolean; error?: string }> {
-  if (isUSDBAvailable()) {
-    return { ready: true };
-  }
-  
-  if (!autoDownload) {
-    return { ready: false, error: getUSDAHelp() };
-  }
-  
-  console.error("USDA database not found. Downloading...");
-  
-  const result = await downloadUSDADatabase((progress) => {
-    if (progress.status === "downloading" && progress.percent !== undefined) {
-      console.error(`  ${progress.message} ${progress.percent}%`);
-    } else {
-      console.error(`  ${progress.message}`);
-    }
-  });
-  
-  if (result.success) {
-    console.error("USDA database downloaded successfully!\n");
-    return { ready: true };
-  }
-  
-  return { ready: false, error: `Failed to download USDA database: ${result.error}` };
-}
-
 function getUSDAHelp(): string {
   const config = loadConfig();
   const usdaDir = join(config.dataDir, "usda");
@@ -181,8 +149,8 @@ Or use an existing database:
   nomnom config --set-usda-path /path/to/usda_fdc.sqlite`;
 }
 
-function showHelp() {
-  console.log(`
+function showHelp(): string {
+  return `
 nomnom - Nutrition tracking CLI for AI agents
 
 Commands:
@@ -233,7 +201,7 @@ Environment Variables:
   NOMNOM_CONFIG_DIR  Override config directory
 
 Output is JSON by default. Add --human or -h for readable format.
-`);
+`;
 }
 
 function computeDateStr(offset: number): string {
@@ -261,100 +229,155 @@ function computeZone(
   }
 }
 
-async function main() {
-  if (!command || command === "help" || command === "--help" || command === "-h") {
-    showHelp();
-    process.exit(0);
+export async function executeCommand(argv: string[]): Promise<CommandResult> {
+  let stdoutBuf = "";
+  let stderrBuf = "";
+
+  function out(s: string): void {
+    stdoutBuf += s + "\n";
   }
 
-  const { flags, positional } = parseFlags(args.slice(1));
-  humanMode = flags.human === "true" || flags.h === "true";
+  function err(s: string): void {
+    stderrBuf += s + "\n";
+  }
 
-  switch (command) {
-    case "init": {
-      if (flags["download-usda"]) {
+  let humanMode = false;
+
+  function printResult(data: unknown, human?: string): void {
+    if (humanMode) {
+      out(human || JSON.stringify(data, null, 2));
+    } else {
+      out(JSON.stringify(data, null, 2));
+    }
+  }
+
+  function printError(message: string): never {
+    throw new CliError(message);
+  }
+
+  async function ensureUSDA(autoDownload: boolean = true): Promise<{ ready: boolean; error?: string }> {
+    if (isUSDBAvailable()) {
+      return { ready: true };
+    }
+
+    if (!autoDownload) {
+      return { ready: false, error: getUSDAHelp() };
+    }
+
+    err("USDA database not found. Downloading...");
+
+    const result = await downloadUSDADatabase((progress) => {
+      if (progress.status === "downloading" && progress.percent !== undefined) {
+        err(`  ${progress.message} ${progress.percent}%`);
+      } else {
+        err(`  ${progress.message}`);
+      }
+    });
+
+    if (result.success) {
+      err("USDA database downloaded successfully!\n");
+      return { ready: true };
+    }
+
+    return { ready: false, error: `Failed to download USDA database: ${result.error}` };
+  }
+
+  try {
+    const command = argv[0];
+
+    if (!command || command === "help" || command === "--help" || command === "-h") {
+      out(showHelp());
+      return { stdout: stdoutBuf, stderr: stderrBuf, exitCode: 0 };
+    }
+
+    const { flags, positional } = parseFlags(argv.slice(1));
+    humanMode = flags.human === "true" || flags.h === "true";
+
+    switch (command) {
+      case "init": {
+        if (flags["download-usda"]) {
+          const result = initializeDatabase();
+          const download = await downloadUSDADatabase((progress) => {
+            if (progress.status === "downloading" && progress.percent !== undefined) {
+              err(`  ${progress.message} ${progress.percent}%`);
+            } else {
+              err(`  ${progress.message}`);
+            }
+          });
+
+          printResult(
+            {
+              initialized: true,
+              dataDir: result.dataDir,
+              usdaDownloaded: download.success,
+              usdaError: download.error,
+            },
+            download.success
+              ? `Initialized NomNom Numbers!\n\nData directory: ${result.dataDir}\nUSDA database downloaded.`
+              : `Initialized NomNom Numbers!\n\nData directory: ${result.dataDir}\nFailed to download USDA database: ${download.error}`
+          );
+          break;
+        }
+
         const result = initializeDatabase();
-        const download = await downloadUSDADatabase((progress) => {
-          if (progress.status === "downloading" && progress.percent !== undefined) {
-            console.error(`  ${progress.message} ${progress.percent}%`);
-          } else {
-            console.error(`  ${progress.message}`);
-          }
-        });
-        
         printResult(
           {
             initialized: true,
             dataDir: result.dataDir,
-            usdaDownloaded: download.success,
-            usdaError: download.error,
+            usdaExists: result.usdaExists
           },
-          download.success
-            ? `Initialized NomNom Numbers!\n\nData directory: ${result.dataDir}\nUSDA database downloaded.`
-            : `Initialized NomNom Numbers!\n\nData directory: ${result.dataDir}\nFailed to download USDA database: ${download.error}`
+          result.mealDbCreated
+            ? `Initialized NomNom Numbers!\n\nData directory: ${result.dataDir}\n\n${result.usdaExists ? "" : "Run 'nomnom init --download-usda' to download the USDA food database."}`
+            : `Database already initialized.\n\nData directory: ${result.dataDir}\n\n${result.usdaExists ? "" : "Run 'nomnom init --download-usda' to download the USDA food database."}`
         );
         break;
       }
-      
-      const result = initializeDatabase();
-      printResult(
-        { 
-          initialized: true, 
-          dataDir: result.dataDir,
-          usdaExists: result.usdaExists 
-        },
-        result.mealDbCreated
-          ? `Initialized NomNom Numbers!\n\nData directory: ${result.dataDir}\n\n${result.usdaExists ? "" : "Run 'nomnom init --download-usda' to download the USDA food database."}`
-          : `Database already initialized.\n\nData directory: ${result.dataDir}\n\n${result.usdaExists ? "" : "Run 'nomnom init --download-usda' to download the USDA food database."}`
-      );
-      break;
-    }
 
-    case "config": {
-      if (flags["set-data-dir"]) {
-        setDataDir(flags["set-data-dir"]);
+      case "config": {
+        if (flags["set-data-dir"]) {
+          setDataDir(flags["set-data-dir"]);
+          printResult(
+            { success: true, dataDir: flags["set-data-dir"] },
+            `Data directory set to: ${flags["set-data-dir"]}`
+          );
+          break;
+        }
+        if (flags["set-usda-path"]) {
+          setUSDAPath(flags["set-usda-path"]);
+          printResult(
+            { success: true, usdaPath: flags["set-usda-path"] },
+            `USDA database path set to: ${flags["set-usda-path"]}`
+          );
+          break;
+        }
+        if (flags.reset) {
+          resetConfig();
+          printResult(
+            { success: true },
+            "Configuration reset to defaults"
+          );
+          break;
+        }
+
+        const config = loadConfig();
+        const paths = getConfigPaths();
+        const usdaExists = existsSync(config.usdaDbPath);
+
         printResult(
-          { success: true, dataDir: flags["set-data-dir"] },
-          `Data directory set to: ${flags["set-data-dir"]}`
-        );
-        break;
-      }
-      if (flags["set-usda-path"]) {
-        setUSDAPath(flags["set-usda-path"]);
-        printResult(
-          { success: true, usdaPath: flags["set-usda-path"] },
-          `USDA database path set to: ${flags["set-usda-path"]}`
-        );
-        break;
-      }
-      if (flags.reset) {
-        resetConfig();
-        printResult(
-          { success: true },
-          "Configuration reset to defaults"
-        );
-        break;
-      }
-      
-      const config = loadConfig();
-      const paths = getConfigPaths();
-      const usdaExists = existsSync(config.usdaDbPath);
-      
-      printResult(
-        {
-          config: {
-            dataDir: config.dataDir,
-            mealDbPath: config.mealDbPath,
-            usdaDbPath: config.usdaDbPath,
-            usdaExists: usdaExists,
+          {
+            config: {
+              dataDir: config.dataDir,
+              mealDbPath: config.mealDbPath,
+              usdaDbPath: config.usdaDbPath,
+              usdaExists: usdaExists,
+            },
+            paths: {
+              configDir: paths.configDir,
+              defaultDataDir: paths.dataDir,
+              configFile: paths.configFile,
+            },
           },
-          paths: {
-            configDir: paths.configDir,
-            defaultDataDir: paths.dataDir,
-            configFile: paths.configFile,
-          },
-        },
-        `Configuration:
+          `Configuration:
   Data directory: ${config.dataDir}
   Meal database:  ${config.mealDbPath}
   USDA database:  ${config.usdaDbPath} ${usdaExists ? "(exists)" : "(not found)"}
@@ -366,393 +389,408 @@ Paths:
 To change settings:
   nomnom config --set-data-dir /path/to/data
   nomnom config --set-usda-path /path/to/usda.sqlite`
-      );
-      break;
-    }
-
-    case "search": {
-      const query = positional.join(" ");
-      if (!query) printError("Usage: nomnom search <query>");
-      const limit = parsePositiveInt(flags.limit, 10, 100);
-      const usda = await ensureUSDA();
-      if (!usda.ready) {
-        printError(usda.error || "USDA database not available");
-      }
-      const results = searchFoods(query, limit);
-      printResult(
-        { query, count: results.length, results: results.map(formatFood) },
-        results.length === 0
-          ? `No results for "${query}"`
-          : results
-              .map(
-                (f, i) =>
-                  `${i + 1}. ${f.description}${f.brand ? ` (${f.brand})` : ""}\n` +
-                  `   ${f.calories ?? "?"} cal | ${f.protein ?? "?"}p ${f.carbs ?? "?"}c ${f.fat ?? "?"}f`
-              )
-              .join("\n\n")
-      );
-      break;
-    }
-
-    case "lookup": {
-      const barcode = positional[0];
-      if (!barcode) printError("Usage: nomnom lookup <barcode>");
-      const usda = await ensureUSDA();
-      if (!usda.ready) {
-        printError(usda.error || "USDA database not available");
-      }
-      const food = lookupBarcode(barcode!);
-      if (!food) {
-        printResult({ found: false, barcode }, `Barcode ${barcode} not found`);
-      } else {
-        printResult(
-          { found: true, ...formatFood(food) },
-          `${food.description}${food.brand ? ` (${food.brand})` : ""}\n` +
-            `${food.calories ?? "?"} cal | ${food.protein ?? "?"}p ${food.carbs ?? "?"}c ${food.fat ?? "?"}f`
         );
-      }
-      break;
-    }
-
-    case "log": {
-      const foodName = positional.join(" ");
-      if (!foodName) printError("Usage: nomnom log <food> [--qty <n>] [--calories <n>] ...");
-
-      const quantity = parseOptionalFloat(flags.qty) ?? 1;
-      const mealType = flags.type || "snack";
-
-      if (!VALID_MEAL_TYPES.has(mealType)) {
-        printError(`Invalid meal type "${mealType}". Must be one of: breakfast, lunch, dinner, snack`);
+        break;
       }
 
-      const id = logMeal({
-        foodName,
-        quantity,
-        unit: flags.unit || "serving",
-        mealType,
-        notes: flags.notes,
-        calories: parseOptionalFloat(flags.calories),
-        protein: parseOptionalFloat(flags.protein),
-        carbs: parseOptionalFloat(flags.carbs),
-        fat: parseOptionalFloat(flags.fat),
-      });
+      case "search": {
+        const query = positional.join(" ");
+        if (!query) printError("Usage: nomnom search <query>");
+        const limit = parsePositiveInt(flags.limit, 10, 100);
+        const usda = await ensureUSDA();
+        if (!usda.ready) {
+          printError(usda.error || "USDA database not available");
+        }
+        const results = searchFoods(query, limit);
+        printResult(
+          { query, count: results.length, results: results.map(formatFood) },
+          results.length === 0
+            ? `No results for "${query}"`
+            : results
+                .map(
+                  (f, i) =>
+                    `${i + 1}. ${f.description}${f.brand ? ` (${f.brand})` : ""}\n` +
+                    `   ${f.calories ?? "?"} cal | ${f.protein ?? "?"}p ${f.carbs ?? "?"}c ${f.fat ?? "?"}f`
+                )
+                .join("\n\n")
+        );
+        break;
+      }
 
-      printResult(
-        { success: true, id, foodName, quantity },
-        `Logged ${quantity} ${flags.unit || "serving"} of ${foodName}`
-      );
-      break;
-    }
+      case "lookup": {
+        const barcode = positional[0];
+        if (!barcode) printError("Usage: nomnom lookup <barcode>");
+        const usda = await ensureUSDA();
+        if (!usda.ready) {
+          printError(usda.error || "USDA database not available");
+        }
+        const food = lookupBarcode(barcode!);
+        if (!food) {
+          printResult({ found: false, barcode }, `Barcode ${barcode} not found`);
+        } else {
+          printResult(
+            { found: true, ...formatFood(food) },
+            `${food.description}${food.brand ? ` (${food.brand})` : ""}\n` +
+              `${food.calories ?? "?"} cal | ${food.protein ?? "?"}p ${food.carbs ?? "?"}c ${food.fat ?? "?"}f`
+          );
+        }
+        break;
+      }
 
-    case "today": {
-      const offsetDays = parseInt(flags.date ?? "0", 10);
-      const today = computeDateStr(isNaN(offsetDays) ? 0 : offsetDays);
-      const meals = getMealsByDate(today);
-      const totals = getDailyTotals(today);
+      case "log": {
+        const foodName = positional.join(" ");
+        if (!foodName) printError("Usage: nomnom log <food> [--qty <n>] [--calories <n>] ...");
 
-      printResult(
-        { date: today, totals, meals: meals.map(formatMeal) },
-        `Today's Summary (${today})\n` +
-          `${totals.mealCount} meals | ${totals.calories} cal | ${totals.protein}p ${totals.carbs}c ${totals.fat}f\n\n` +
-          (meals.length === 0
-            ? "No meals logged"
+        const quantity = parseOptionalFloat(flags.qty) ?? 1;
+        const mealType = flags.type || "snack";
+
+        if (!VALID_MEAL_TYPES.has(mealType)) {
+          printError(`Invalid meal type "${mealType}". Must be one of: breakfast, lunch, dinner, snack`);
+        }
+
+        const id = logMeal({
+          foodName,
+          quantity,
+          unit: flags.unit || "serving",
+          mealType,
+          notes: flags.notes,
+          calories: parseOptionalFloat(flags.calories),
+          protein: parseOptionalFloat(flags.protein),
+          carbs: parseOptionalFloat(flags.carbs),
+          fat: parseOptionalFloat(flags.fat),
+        });
+
+        printResult(
+          { success: true, id, foodName, quantity },
+          `Logged ${quantity} ${flags.unit || "serving"} of ${foodName}`
+        );
+        break;
+      }
+
+      case "today": {
+        const offsetDays = parseInt(flags.date ?? "0", 10);
+        const today = computeDateStr(isNaN(offsetDays) ? 0 : offsetDays);
+        const meals = getMealsByDate(today);
+        const totals = getDailyTotals(today);
+
+        printResult(
+          { date: today, totals, meals: meals.map(formatMeal) },
+          `Today's Summary (${today})\n` +
+            `${totals.mealCount} meals | ${totals.calories} cal | ${totals.protein}p ${totals.carbs}c ${totals.fat}f\n\n` +
+            (meals.length === 0
+              ? "No meals logged"
+              : meals
+                  .map(
+                    (m) =>
+                      `- ${m.foodName} (${m.quantity} ${m.unit}) [${m.mealType}]\n` +
+                        `  ${m.calories ?? "?"} cal | ${m.protein ?? "?"}p ${m.carbs ?? "?"}c ${m.fat ?? "?"}f${m.notes ? ` | ${m.notes}` : ""} | ${m.loggedAt}`
+                  )
+                  .join("\n"))
+        );
+        break;
+      }
+
+      case "history": {
+        const limit = parsePositiveInt(flags.limit, 20, 500);
+        const meals = getMealHistory(limit);
+        printResult(
+          { count: meals.length, meals: meals.map(formatMeal) },
+          meals.length === 0
+            ? "No meals in history"
             : meals
                 .map(
                   (m) =>
-                    `- ${m.foodName} (${m.quantity} ${m.unit}) [${m.mealType}]\n` +
-                      `  ${m.calories ?? "?"} cal | ${m.protein ?? "?"}p ${m.carbs ?? "?"}c ${m.fat ?? "?"}f${m.notes ? ` | ${m.notes}` : ""} | ${m.loggedAt}`
+                    `${m.loggedAt} - ${m.foodName} (${m.quantity} ${m.unit})\n` +
+                      `  ${m.calories ?? "?"} cal | ${m.protein ?? "?"}p ${m.carbs ?? "?"}c ${m.fat ?? "?"}f`
                 )
-                .join("\n"))
-      );
-      break;
-    }
-
-    case "history": {
-      const limit = parsePositiveInt(flags.limit, 20, 500);
-      const meals = getMealHistory(limit);
-      printResult(
-        { count: meals.length, meals: meals.map(formatMeal) },
-        meals.length === 0
-          ? "No meals in history"
-          : meals
-              .map(
-                (m) =>
-                  `${m.loggedAt} - ${m.foodName} (${m.quantity} ${m.unit})\n` +
-                    `  ${m.calories ?? "?"} cal | ${m.protein ?? "?"}p ${m.carbs ?? "?"}c ${m.fat ?? "?"}f`
-              )
-              .join("\n\n")
-      );
-      break;
-    }
-
-    case "goals": {
-      // Reset
-      if (flags.reset) {
-        resetGoals();
-        printResult({ success: true }, "Goals reset");
-        break;
-      }
-
-      // Set goals (at least one macro flag required)
-      const macros = ["calories", "protein", "carbs", "fat"] as const;
-      const toSet: Array<{ key: string; target: number; direction?: "under" | "over"; tolerance?: number }> = [];
-      const tolOnly: Array<{ key: string; tolerance: number }> = [];
-      for (const m of macros) {
-        const val = parseOptionalFloat(flags[m]);
-        const tolVal = parseOptionalFloat(flags[`${m}-tolerance`]);
-        if (tolVal !== undefined && (tolVal < 0 || tolVal > 100)) {
-          printError(`Invalid ${m}-tolerance ${tolVal}: must be 0-100`);
-        }
-        if (val !== undefined) {
-          const dirFlag = flags[`${m}-direction`];
-          const direction = dirFlag === "over" || dirFlag === "under" ? dirFlag : undefined;
-          toSet.push({ key: m, target: val, direction, tolerance: tolVal });
-        } else if (tolVal !== undefined) {
-          // Tolerance-only update (no new target)
-          tolOnly.push({ key: m, tolerance: tolVal });
-        }
-      }
-
-      if (toSet.length > 0 || tolOnly.length > 0) {
-        const allKeys: string[] = [];
-        for (const g of toSet) {
-          setGoal(g.key, g.target, g.direction, g.tolerance);
-          allKeys.push(g.key);
-        }
-        for (const t of tolOnly) {
-          try {
-            setGoalTolerance(t.key, t.tolerance);
-            allKeys.push(t.key);
-          } catch (e) {
-            printError(e instanceof Error ? e.message : `Failed to set tolerance for ${t.key}`);
-          }
-        }
-        printResult(
-          { success: true, goalsSet: allKeys },
-          `Goals set: ${allKeys.join(", ")}`
+                .join("\n\n")
         );
         break;
       }
 
-      // View goals
-      const goals = getGoals();
-      if (goals.length === 0) {
-        printResult({ goals: null }, "No goals set. Use: nomnom goals --calories 2000 --protein 120");
+      case "goals": {
+        // Reset
+        if (flags.reset) {
+          resetGoals();
+          printResult({ success: true }, "Goals reset");
+          break;
+        }
+
+        // Set goals (at least one macro flag required)
+        const macros = ["calories", "protein", "carbs", "fat"] as const;
+        const toSet: Array<{ key: string; target: number; direction?: "under" | "over"; tolerance?: number }> = [];
+        const tolOnly: Array<{ key: string; tolerance: number }> = [];
+        for (const m of macros) {
+          const val = parseOptionalFloat(flags[m]);
+          const tolVal = parseOptionalFloat(flags[`${m}-tolerance`]);
+          if (tolVal !== undefined && (tolVal < 0 || tolVal > 100)) {
+            printError(`Invalid ${m}-tolerance ${tolVal}: must be 0-100`);
+          }
+          if (val !== undefined) {
+            const dirFlag = flags[`${m}-direction`];
+            const direction = dirFlag === "over" || dirFlag === "under" ? dirFlag : undefined;
+            toSet.push({ key: m, target: val, direction, tolerance: tolVal });
+          } else if (tolVal !== undefined) {
+            // Tolerance-only update (no new target)
+            tolOnly.push({ key: m, tolerance: tolVal });
+          }
+        }
+
+        if (toSet.length > 0 || tolOnly.length > 0) {
+          const allKeys: string[] = [];
+          for (const g of toSet) {
+            setGoal(g.key, g.target, g.direction, g.tolerance);
+            allKeys.push(g.key);
+          }
+          for (const t of tolOnly) {
+            try {
+              setGoalTolerance(t.key, t.tolerance);
+              allKeys.push(t.key);
+            } catch (e) {
+              printError(e instanceof Error ? e.message : `Failed to set tolerance for ${t.key}`);
+            }
+          }
+          printResult(
+            { success: true, goalsSet: allKeys },
+            `Goals set: ${allKeys.join(", ")}`
+          );
+          break;
+        }
+
+        // View goals
+        const goals = getGoals();
+        if (goals.length === 0) {
+          printResult({ goals: null }, "No goals set. Use: nomnom goals --calories 2000 --protein 120");
+          break;
+        }
+
+        const goalsObj: Record<string, { target: number; direction: string; tolerance: number }> = {};
+        let latestUpdate = "";
+        for (const g of goals) {
+          goalsObj[g.key] = { target: g.target, direction: g.direction, tolerance: g.tolerance };
+          if (g.updatedAt > latestUpdate) latestUpdate = g.updatedAt;
+        }
+
+        printResult(
+          { goals: { ...goalsObj, updatedAt: latestUpdate } },
+          goals
+            .map((g) => {
+              const tolStr = g.tolerance > 0 ? ` ±${g.tolerance}%` : "";
+              return `${g.key}: ${g.target} (${g.direction}${tolStr})`;
+            })
+            .join("\n") + `\n\nLast updated: ${latestUpdate}`
+        );
         break;
       }
 
-      const goalsObj: Record<string, { target: number; direction: string; tolerance: number }> = {};
-      let latestUpdate = "";
-      for (const g of goals) {
-        goalsObj[g.key] = { target: g.target, direction: g.direction, tolerance: g.tolerance };
-        if (g.updatedAt > latestUpdate) latestUpdate = g.updatedAt;
-      }
-
-      printResult(
-        { goals: { ...goalsObj, updatedAt: latestUpdate } },
-        goals
-          .map((g) => {
-            const tolStr = g.tolerance > 0 ? ` ±${g.tolerance}%` : "";
-            return `${g.key}: ${g.target} (${g.direction}${tolStr})`;
-          })
-          .join("\n") + `\n\nLast updated: ${latestUpdate}`
-      );
-      break;
-    }
-
-    case "progress": {
-      const goals = getGoals();
-      if (goals.length === 0) {
-        printError("No goals set. Use 'nomnom goals --calories 2000 ...' to set goals.");
-      }
-
-      const offsetDays = parseInt(flags.date ?? "0", 10);
-      const targetDate = computeDateStr(isNaN(offsetDays) ? 0 : offsetDays);
-      const todayTotals = getDailyTotals(targetDate);
-      const allDays = getAllDailyTotals();
-
-      // Build a map of date -> totals for fast lookup
-      const dayMap = new Map<string, DailyTotal>();
-      for (const d of allDays) dayMap.set(d.date, d);
-
-      // Goals object
-      const goalsObj: Record<string, { target: number; direction: string; tolerance: number }> = {};
-      for (const g of goals) goalsObj[g.key] = { target: g.target, direction: g.direction, tolerance: g.tolerance };
-
-      // Today's progress per macro
-      const todayProgress: Record<string, {
-        actual: number; goal: number; remaining: number; percent: number;
-        tolerance: number; band: number; zone: string;
-      }> = {};
-      for (const g of goals) {
-        const actual = todayTotals[g.key as keyof typeof todayTotals] as number;
-        const remaining = g.target - actual;
-        const percent = g.target === 0 ? (actual === 0 ? 100 : 999) : Math.round((actual / g.target) * 100);
-        const { zone, band } = computeZone(actual, g.target, g.direction, g.tolerance);
-        todayProgress[g.key] = {
-          actual, goal: g.target,
-          remaining: Math.round(remaining * 10) / 10,
-          percent,
-          tolerance: g.tolerance,
-          band,
-          zone,
-        };
-      }
-
-      // Helper: check if a day meets a single goal
-      function meetsGoal(day: DailyTotal | undefined, goal: Goal): boolean {
-        if (!day || day.mealCount === 0) return false;
-        const actual = day[goal.key as keyof DailyTotal] as number;
-        const { zone } = computeZone(actual, goal.target, goal.direction, goal.tolerance);
-        return zone === "met" || zone === "near";
-      }
-
-      // Helper: generate dates going backwards from a start date
-      function datesBackward(from: string): string[] {
-        const dates: string[] = [];
-        const d = new Date(from + "T12:00:00");
-        // Go back far enough to cover all history
-        for (let i = 0; i < 1000; i++) {
-          dates.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
-          d.setDate(d.getDate() - 1);
+      case "progress": {
+        const goals = getGoals();
+        if (goals.length === 0) {
+          printError("No goals set. Use 'nomnom goals --calories 2000 ...' to set goals.");
         }
-        return dates;
-      }
 
-      const datesBack = datesBackward(targetDate);
+        const offsetDays = parseInt(flags.date ?? "0", 10);
+        const targetDate = computeDateStr(isNaN(offsetDays) ? 0 : offsetDays);
+        const todayTotals = getDailyTotals(targetDate);
+        const allDays = getAllDailyTotals();
 
-      // Compute streaks for each goal
-      const streaks: Record<string, { current: number; best: number; direction: string }> = {};
-      for (const g of goals) {
-        // Current streak: walk backward from targetDate
-        let current = 0;
+        // Build a map of date -> totals for fast lookup
+        const dayMap = new Map<string, DailyTotal>();
+        for (const d of allDays) dayMap.set(d.date, d);
+
+        // Goals object
+        const goalsObj: Record<string, { target: number; direction: string; tolerance: number }> = {};
+        for (const g of goals) goalsObj[g.key] = { target: g.target, direction: g.direction, tolerance: g.tolerance };
+
+        // Today's progress per macro
+        const todayProgress: Record<string, {
+          actual: number; goal: number; remaining: number; percent: number;
+          tolerance: number; band: number; zone: string;
+        }> = {};
+        for (const g of goals) {
+          const actual = todayTotals[g.key as keyof typeof todayTotals] as number;
+          const remaining = g.target - actual;
+          const percent = g.target === 0 ? (actual === 0 ? 100 : 999) : Math.round((actual / g.target) * 100);
+          const { zone, band } = computeZone(actual, g.target, g.direction, g.tolerance);
+          todayProgress[g.key] = {
+            actual, goal: g.target,
+            remaining: Math.round(remaining * 10) / 10,
+            percent,
+            tolerance: g.tolerance,
+            band,
+            zone,
+          };
+        }
+
+        // Helper: check if a day meets a single goal
+        function meetsGoal(day: DailyTotal | undefined, goal: Goal): boolean {
+          if (!day || day.mealCount === 0) return false;
+          const actual = day[goal.key as keyof DailyTotal] as number;
+          const { zone } = computeZone(actual, goal.target, goal.direction, goal.tolerance);
+          return zone === "met" || zone === "near";
+        }
+
+        // Helper: generate dates going backwards from a start date
+        function datesBackward(from: string): string[] {
+          const dates: string[] = [];
+          const d = new Date(from + "T12:00:00");
+          // Go back far enough to cover all history
+          for (let i = 0; i < 1000; i++) {
+            dates.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
+            d.setDate(d.getDate() - 1);
+          }
+          return dates;
+        }
+
+        const datesBack = datesBackward(targetDate);
+
+        // Compute streaks for each goal
+        const streaks: Record<string, { current: number; best: number; direction: string }> = {};
+        for (const g of goals) {
+          // Current streak: walk backward from targetDate
+          let current = 0;
+          for (const date of datesBack) {
+            const day = dayMap.get(date);
+            if (!day || day.mealCount === 0) break;
+            if (meetsGoal(day, g)) {
+              current++;
+            } else {
+              break;
+            }
+          }
+
+          // Best streak: scan all days in order
+          let best = 0;
+          let run = 0;
+          for (const day of allDays) {
+            if (meetsGoal(day, g)) {
+              run++;
+              if (run > best) best = run;
+            } else {
+              run = 0;
+            }
+          }
+
+          streaks[g.key] = { current, best, direction: g.direction };
+        }
+
+        // allGoals streak
+        let allCurrent = 0;
         for (const date of datesBack) {
           const day = dayMap.get(date);
           if (!day || day.mealCount === 0) break;
-          if (meetsGoal(day, g)) {
-            current++;
+          if (goals.every((g) => meetsGoal(day, g))) {
+            allCurrent++;
           } else {
             break;
           }
         }
-
-        // Best streak: scan all days in order
-        let best = 0;
-        let run = 0;
+        let allBest = 0;
+        let allRun = 0;
         for (const day of allDays) {
-          if (meetsGoal(day, g)) {
-            run++;
-            if (run > best) best = run;
+          if (goals.every((g) => meetsGoal(day, g))) {
+            allRun++;
+            if (allRun > allBest) allBest = allRun;
           } else {
-            run = 0;
+            allRun = 0;
           }
         }
 
-        streaks[g.key] = { current, best, direction: g.direction };
-      }
-
-      // allGoals streak
-      let allCurrent = 0;
-      for (const date of datesBack) {
-        const day = dayMap.get(date);
-        if (!day || day.mealCount === 0) break;
-        if (goals.every((g) => meetsGoal(day, g))) {
-          allCurrent++;
-        } else {
-          break;
-        }
-      }
-      let allBest = 0;
-      let allRun = 0;
-      for (const day of allDays) {
-        if (goals.every((g) => meetsGoal(day, g))) {
-          allRun++;
-          if (allRun > allBest) allBest = allRun;
-        } else {
-          allRun = 0;
-        }
-      }
-
-      // Weekly average (7-day rolling ending at targetDate)
-      const weekDates: string[] = [];
-      {
-        const d = new Date(targetDate + "T12:00:00");
-        for (let i = 0; i < 7; i++) {
-          weekDates.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
-          d.setDate(d.getDate() - 1);
-        }
-      }
-      let weekCal = 0, weekPro = 0, weekCarb = 0, weekFat = 0, daysTracked = 0;
-      for (const wd of weekDates) {
-        const day = dayMap.get(wd);
-        if (day && day.mealCount > 0) {
-          weekCal += day.calories;
-          weekPro += day.protein;
-          weekCarb += day.carbs;
-          weekFat += day.fat;
-          daysTracked++;
-        }
-      }
-
-      const weeklyAvg = daysTracked > 0
-        ? {
-            calories: Math.round((weekCal / daysTracked) * 10) / 10,
-            protein: Math.round((weekPro / daysTracked) * 10) / 10,
-            carbs: Math.round((weekCarb / daysTracked) * 10) / 10,
-            fat: Math.round((weekFat / daysTracked) * 10) / 10,
-            daysTracked,
+        // Weekly average (7-day rolling ending at targetDate)
+        const weekDates: string[] = [];
+        {
+          const d = new Date(targetDate + "T12:00:00");
+          for (let i = 0; i < 7; i++) {
+            weekDates.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
+            d.setDate(d.getDate() - 1);
           }
-        : { calories: 0, protein: 0, carbs: 0, fat: 0, daysTracked: 0 };
+        }
+        let weekCal = 0, weekPro = 0, weekCarb = 0, weekFat = 0, daysTracked = 0;
+        for (const wd of weekDates) {
+          const day = dayMap.get(wd);
+          if (day && day.mealCount > 0) {
+            weekCal += day.calories;
+            weekPro += day.protein;
+            weekCarb += day.carbs;
+            weekFat += day.fat;
+            daysTracked++;
+          }
+        }
 
-      // Build JSON result
-      const result = {
-        date: targetDate,
-        goals: goalsObj,
-        today: { ...todayProgress, mealCount: todayTotals.mealCount },
-        streaks: { ...streaks, allGoals: { current: allCurrent, best: allBest } },
-        weeklyAvg,
-      };
+        const weeklyAvg = daysTracked > 0
+          ? {
+              calories: Math.round((weekCal / daysTracked) * 10) / 10,
+              protein: Math.round((weekPro / daysTracked) * 10) / 10,
+              carbs: Math.round((weekCarb / daysTracked) * 10) / 10,
+              fat: Math.round((weekFat / daysTracked) * 10) / 10,
+              daysTracked,
+            }
+          : { calories: 0, protein: 0, carbs: 0, fat: 0, daysTracked: 0 };
 
-      // Human-readable format
-      function bar(percent: number): string {
-        const filled = Math.min(Math.round(percent / 10), 10);
-        return "■".repeat(filled) + "░".repeat(10 - filled);
-      }
+        // Build JSON result
+        const result = {
+          date: targetDate,
+          goals: goalsObj,
+          today: { ...todayProgress, mealCount: todayTotals.mealCount },
+          streaks: { ...streaks, allGoals: { current: allCurrent, best: allBest } },
+          weeklyAvg,
+        };
 
-      const humanLines = [`Progress for ${targetDate}\n`];
-      for (const g of goals) {
-        const p = todayProgress[g.key]!;
-        const label = g.key.charAt(0).toUpperCase() + g.key.slice(1);
-        const remaining = p.remaining >= 0
-          ? `${p.remaining} remaining`
-          : `OVER by ${Math.abs(p.remaining)}`;
-        const zoneStr = p.tolerance > 0 ? ` [${p.zone}]` : "";
+        // Human-readable format
+        function bar(percent: number): string {
+          const filled = Math.min(Math.round(percent / 10), 10);
+          return "■".repeat(filled) + "░".repeat(10 - filled);
+        }
+
+        const humanLines = [`Progress for ${targetDate}\n`];
+        for (const g of goals) {
+          const p = todayProgress[g.key]!;
+          const label = g.key.charAt(0).toUpperCase() + g.key.slice(1);
+          const remaining = p.remaining >= 0
+            ? `${p.remaining} remaining`
+            : `OVER by ${Math.abs(p.remaining)}`;
+          const zoneStr = p.tolerance > 0 ? ` [${p.zone}]` : "";
+          humanLines.push(
+            `${label.padEnd(9)} ${String(p.actual).padStart(7)} / ${String(p.goal).padStart(5)}  (${String(p.percent).padStart(3)}%) ${bar(p.percent)} ${remaining}${zoneStr}`
+          );
+        }
+
+        const streakParts: string[] = [];
+        for (const g of goals) {
+          const s = streaks[g.key]!;
+          const abbr = g.key.slice(0, 3);
+          streakParts.push(`${abbr} ${s.current}d (best ${s.best}d)`);
+        }
+        streakParts.push(`all ${allCurrent}d (best ${allBest}d)`);
+        humanLines.push(`\nStreaks:  ${streakParts.join(" | ")}`);
         humanLines.push(
-          `${label.padEnd(9)} ${String(p.actual).padStart(7)} / ${String(p.goal).padStart(5)}  (${String(p.percent).padStart(3)}%) ${bar(p.percent)} ${remaining}${zoneStr}`
+          `\n7-day avg: ${weeklyAvg.calories} cal | ${weeklyAvg.protein}p ${weeklyAvg.carbs}c ${weeklyAvg.fat}f (${weeklyAvg.daysTracked} days tracked)`
         );
+
+        printResult(result, humanLines.join("\n"));
+        break;
       }
 
-      const streakParts: string[] = [];
-      for (const g of goals) {
-        const s = streaks[g.key]!;
-        const abbr = g.key.slice(0, 3);
-        streakParts.push(`${abbr} ${s.current}d (best ${s.best}d)`);
-      }
-      streakParts.push(`all ${allCurrent}d (best ${allBest}d)`);
-      humanLines.push(`\nStreaks:  ${streakParts.join(" | ")}`);
-      humanLines.push(
-        `\n7-day avg: ${weeklyAvg.calories} cal | ${weeklyAvg.protein}p ${weeklyAvg.carbs}c ${weeklyAvg.fat}f (${weeklyAvg.daysTracked} days tracked)`
-      );
-
-      printResult(result, humanLines.join("\n"));
-      break;
+      default:
+        printError(`Unknown command: ${command}. Run 'nomnom help' for usage.`);
     }
 
-    default:
-      printError(`Unknown command: ${command}. Run 'nomnom help' for usage.`);
+    return { stdout: stdoutBuf, stderr: stderrBuf, exitCode: 0 };
+  } catch (e) {
+    if (e instanceof CliError) {
+      stderrBuf += JSON.stringify({ error: e.message }) + "\n";
+      return { stdout: stdoutBuf, stderr: stderrBuf, exitCode: 1 };
+    }
+    // Unexpected error
+    const message = e instanceof Error ? e.message : "Unknown error";
+    stderrBuf += JSON.stringify({ error: message }) + "\n";
+    return { stdout: stdoutBuf, stderr: stderrBuf, exitCode: 1 };
   }
 }
 
-main().catch((err) => {
-  printError(err instanceof Error ? err.message : "Unknown error");
-});
+if (import.meta.main) {
+  const result = await executeCommand(process.argv.slice(2));
+  if (result.stderr) process.stderr.write(result.stderr);
+  if (result.stdout) process.stdout.write(result.stdout);
+  process.exit(result.exitCode);
+}
