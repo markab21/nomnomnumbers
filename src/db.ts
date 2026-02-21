@@ -465,6 +465,49 @@ export function logMeal(input: {
   return id;
 }
 
+export function getMealById(id: string): MealResult | null {
+  const db = getDb();
+  const row = db.query(`
+    SELECT id, food_name, quantity, unit, meal_type, logged_at, notes,
+           calories, protein, carbs, fat
+    FROM meals WHERE id = ?
+  `).get(id) as {
+    id: string;
+    food_name: string;
+    quantity: number;
+    unit: string;
+    meal_type: string;
+    logged_at: string;
+    notes: string | null;
+    calories: number | null;
+    protein: number | null;
+    carbs: number | null;
+    fat: number | null;
+  } | null;
+
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    foodName: row.food_name,
+    quantity: row.quantity,
+    unit: row.unit,
+    mealType: row.meal_type,
+    loggedAt: row.logged_at,
+    notes: row.notes,
+    calories: row.calories,
+    protein: row.protein,
+    carbs: row.carbs,
+    fat: row.fat,
+  };
+}
+
+export function deleteMeal(id: string): boolean {
+  const db = getDb();
+  const result = db.query("DELETE FROM meals WHERE id = ?").run(id);
+  return result.changes > 0;
+}
+
 export function getMealsByDate(date: string): MealResult[] {
   const db = getDb();
   const stmt = db.query(`
