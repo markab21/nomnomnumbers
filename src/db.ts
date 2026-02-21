@@ -291,6 +291,13 @@ function initTables(db: Database) {
     
     CREATE INDEX IF NOT EXISTS idx_meals_logged_at ON meals(logged_at);
     CREATE INDEX IF NOT EXISTS idx_meals_barcode ON meals(barcode);
+
+    CREATE TABLE IF NOT EXISTS goals (
+      key TEXT PRIMARY KEY,
+      target REAL NOT NULL,
+      direction TEXT NOT NULL DEFAULT 'under',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 }
 
@@ -570,4 +577,93 @@ export function isUSDBAvailable(): boolean {
 
 export function getUSDAPath(): string {
   return getConfig().usdaDbPath;
+}
+
+// ---- Goals ----
+
+export interface Goal {
+  key: string;
+  target: number;
+  direction: "under" | "over";
+  updatedAt: string;
+}
+
+const VALID_GOAL_KEYS = new Set(["calories", "protein", "carbs", "fat"]);
+const DEFAULT_DIRECTIONS: Record<string, "under" | "over"> = {
+  calories: "under",
+  protein: "over",
+  carbs: "under",
+  fat: "under",
+};
+
+export function setGoal(key: string, target: number, direction?: "under" | "over"): void {
+  if (!VALID_GOAL_KEYS.has(key)) throw new Error(`Invalid goal key: ${key}`);
+  const db = getDb();
+  const dir = direction ?? DEFAULT_DIRECTIONS[key] ?? "under";
+  db.query(
+    `INSERT INTO goals (key, target, direction, updated_at)
+     VALUES (?, ?, ?, datetime('now'))
+     ON CONFLICT(key) DO UPDATE SET target = excluded.target, direction = excluded.direction, updated_at = datetime('now')`
+  ).run(key, target, dir);
+}
+
+export function getGoals(): Goal[] {
+  const db = getDb();
+  const rows = db.query(
+    `SELECT key, target, direction, updated_at FROM goals ORDER BY key`
+  ).all() as Array<{ key: string; target: number; direction: string; updated_at: string }>;
+  return rows.map((r) => ({
+    key: r.key,
+    target: r.target,
+    direction: r.direction as "under" | "over",
+    updatedAt: r.updated_at,
+  }));
+}
+
+export function resetGoals(): void {
+  const db = getDb();
+  db.query("DELETE FROM goals").run();
+}
+
+// ---- Daily Totals (all days) ----
+
+export interface DailyTotal {
+  date: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  mealCount: number;
+}
+
+export function getAllDailyTotals(): DailyTotal[] {
+  const db = getDb();
+  const rows = db.query(`
+    SELECT
+      date(logged_at) as date,
+      COALESCE(SUM(calories), 0) as calories,
+      COALESCE(SUM(protein), 0) as protein,
+      COALESCE(SUM(carbs), 0) as carbs,
+      COALESCE(SUM(fat), 0) as fat,
+      COUNT(*) as meal_count
+    FROM meals
+    GROUP BY date(logged_at)
+    ORDER BY date ASC
+  `).all() as Array<{
+    date: string;
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+    meal_count: number;
+  }>;
+
+  return rows.map((r) => ({
+    date: r.date,
+    calories: Math.round(r.calories * 10) / 10,
+    protein: Math.round(r.protein * 10) / 10,
+    carbs: Math.round(r.carbs * 10) / 10,
+    fat: Math.round(r.fat * 10) / 10,
+    mealCount: r.meal_count,
+  }));
 }
