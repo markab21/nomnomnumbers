@@ -17,6 +17,7 @@ import {
   downloadUSDADatabase,
   usdaDbExists,
   setGoal,
+  setGoalTolerance,
   getGoals,
   resetGoals,
   type FoodResult,
@@ -214,6 +215,7 @@ Commands:
     --carbs <n>                Daily carbs target (g)
     --fat <n>                  Daily fat target (g)
     --<macro>-direction <d>    Goal direction: under or over
+    --<macro>-tolerance <n>    Tolerance percentage (0-100) for grace zone
     --reset                    Clear all goals
 
   progress [options]           Show progress vs goals (streaks, weekly avg)
@@ -474,23 +476,38 @@ To change settings:
 
       // Set goals (at least one macro flag required)
       const macros = ["calories", "protein", "carbs", "fat"] as const;
-      const toSet: Array<{ key: string; target: number; direction?: "under" | "over" }> = [];
+      const toSet: Array<{ key: string; target: number; direction?: "under" | "over"; tolerance?: number }> = [];
+      const tolOnly: Array<{ key: string; tolerance: number }> = [];
       for (const m of macros) {
         const val = parseOptionalFloat(flags[m]);
+        const tolVal = parseOptionalFloat(flags[`${m}-tolerance`]);
         if (val !== undefined) {
           const dirFlag = flags[`${m}-direction`];
           const direction = dirFlag === "over" || dirFlag === "under" ? dirFlag : undefined;
-          toSet.push({ key: m, target: val, direction });
+          toSet.push({ key: m, target: val, direction, tolerance: tolVal });
+        } else if (tolVal !== undefined) {
+          // Tolerance-only update (no new target)
+          tolOnly.push({ key: m, tolerance: tolVal });
         }
       }
 
-      if (toSet.length > 0) {
+      if (toSet.length > 0 || tolOnly.length > 0) {
+        const allKeys: string[] = [];
         for (const g of toSet) {
-          setGoal(g.key, g.target, g.direction);
+          setGoal(g.key, g.target, g.direction, g.tolerance);
+          allKeys.push(g.key);
+        }
+        for (const t of tolOnly) {
+          try {
+            setGoalTolerance(t.key, t.tolerance);
+            allKeys.push(t.key);
+          } catch (e) {
+            printError(e instanceof Error ? e.message : `Failed to set tolerance for ${t.key}`);
+          }
         }
         printResult(
-          { success: true, goalsSet: toSet.map((g) => g.key) },
-          `Goals set: ${toSet.map((g) => `${g.key}=${g.target}`).join(", ")}`
+          { success: true, goalsSet: allKeys },
+          `Goals set: ${allKeys.join(", ")}`
         );
         break;
       }
@@ -502,17 +519,20 @@ To change settings:
         break;
       }
 
-      const goalsObj: Record<string, { target: number; direction: string }> = {};
+      const goalsObj: Record<string, { target: number; direction: string; tolerance: number }> = {};
       let latestUpdate = "";
       for (const g of goals) {
-        goalsObj[g.key] = { target: g.target, direction: g.direction };
+        goalsObj[g.key] = { target: g.target, direction: g.direction, tolerance: g.tolerance };
         if (g.updatedAt > latestUpdate) latestUpdate = g.updatedAt;
       }
 
       printResult(
         { goals: { ...goalsObj, updatedAt: latestUpdate } },
         goals
-          .map((g) => `${g.key}: ${g.target} (${g.direction})`)
+          .map((g) => {
+            const tolStr = g.tolerance > 0 ? ` ±${g.tolerance}%` : "";
+            return `${g.key}: ${g.target} (${g.direction}${tolStr})`;
+          })
           .join("\n") + `\n\nLast updated: ${latestUpdate}`
       );
       break;
