@@ -40,7 +40,7 @@ function parseFlags(args: string[]): { flags: Record<string, string>; positional
       }
       const key = arg.slice(2);
       const value = args[i + 1];
-      if (value && !value.startsWith("-")) {
+      if (value && (!value.startsWith("-") || /^-\d/.test(value))) {
         flags[key] = value;
         i++;
       } else {
@@ -50,7 +50,7 @@ function parseFlags(args: string[]): { flags: Record<string, string>; positional
       // Handle single-letter flags like -h, -n
       const key = arg.slice(1);
       const value = args[i + 1];
-      if (value && !value.startsWith("-")) {
+      if (value && (!value.startsWith("-") || /^-\d/.test(value))) {
         flags[key] = value;
         i++;
       } else {

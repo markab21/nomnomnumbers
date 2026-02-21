@@ -28,14 +28,14 @@ function getDefaultConfigDir(): string {
   if (process.platform === "win32") {
     return join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "nomnom");
   }
-  return process.env.XDG_CONFIG_HOME || join(homedir(), ".config", "nomnom");
+  return join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "nomnom");
 }
 
 function getDefaultDataDir(): string {
   if (process.platform === "win32") {
     return join(process.env.LOCALAPPDATA || join(homedir(), "AppData", "Local"), "nomnom");
   }
-  return process.env.XDG_DATA_HOME || join(homedir(), ".local", "share", "nomnom");
+  return join(process.env.XDG_DATA_HOME || join(homedir(), ".local", "share"), "nomnom");
 }
 
 function ensureDir(path: string): void {
@@ -329,7 +329,7 @@ export function searchFoods(query: string, limit: number = 10): FoodResult[] {
 
   // Sanitize for FTS5: strip special chars, quote each word as a literal term
   const words = query.trim()
-    .replace(/[^\w\s]/g, " ")  // Remove all non-word, non-space chars
+    .replace(/["\*\+\^\(\)\{\}~|\\!:\-]/g, " ")  // Strip FTS5 operator chars only; preserve Unicode letters
     .split(/\s+/)
     .filter(Boolean)
     .map(w => `"${w}"`);       // Quote each word to prevent FTS5 operator injection
