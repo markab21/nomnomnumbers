@@ -23,6 +23,9 @@ import {
   setGoalTolerance,
   getGoals,
   resetGoals,
+  addCustomFood,
+  listCustomFoods,
+  deleteCustomFood,
   type FoodResult,
   type MealResult,
   getAllDailyTotals,
@@ -187,6 +190,21 @@ Commands:
     --carbs <n>               Carbs (g)
     --fat <n>                 Fat (g)
     --notes <text>            Notes
+
+  foods [subcommand]          Manage custom foods
+    foods add <name>          Add a custom food
+      --calories <n>          Calories
+      --protein <n>           Protein (g)
+      --carbs <n>             Carbs (g)
+      --fat <n>               Fat (g)
+      --fiber <n>             Fiber (g)
+      --sugar <n>             Sugar (g)
+      --sodium <n>            Sodium (mg)
+      --serving <text>        Serving size description
+      --brand <text>          Brand name
+      --barcode <text>        Barcode
+    foods list                List all custom foods
+    foods delete <id>         Delete a custom food
 
   today                       Show today's meals and totals
     
@@ -856,6 +874,71 @@ To change settings:
         );
 
         printResult(result, humanLines.join("\n"));
+        break;
+      }
+
+      case "foods": {
+        const subcommand = positional[0];
+
+        if (!subcommand || subcommand === "list") {
+          const foods = listCustomFoods();
+          printResult(
+            { count: foods.length, foods: foods.map(f => ({
+              id: f.id, name: f.description, brand: f.brand, barcode: f.barcode,
+              servingSize: f.servingSize, calories: f.calories, protein: f.protein,
+              carbs: f.carbs, fat: f.fat, fiber: f.fiber, sugar: f.sugar,
+              sodium: f.sodium, createdAt: f.createdAt,
+            })) },
+            foods.length === 0
+              ? "No custom foods"
+              : foods.map((f, i) =>
+                  `${i + 1}. ${f.description}${f.brand ? ` (${f.brand})` : ""}` +
+                  `\n   ${f.calories ?? "?"} cal | ${f.protein ?? "?"}p ${f.carbs ?? "?"}c ${f.fat ?? "?"}f`
+                ).join("\n\n")
+          );
+          break;
+        }
+
+        if (subcommand === "add") {
+          const name = positional.slice(1).join(" ");
+          if (!name) printError("Usage: nomnom foods add <name> [--calories <n>] ...");
+
+          const id = addCustomFood({
+            description: name,
+            brand: flags.brand,
+            barcode: flags.barcode,
+            servingSize: flags.serving,
+            calories: parseOptionalFloat(flags.calories),
+            protein: parseOptionalFloat(flags.protein),
+            carbs: parseOptionalFloat(flags.carbs),
+            fat: parseOptionalFloat(flags.fat),
+            fiber: parseOptionalFloat(flags.fiber),
+            sugar: parseOptionalFloat(flags.sugar),
+            sodium: parseOptionalFloat(flags.sodium),
+          });
+
+          printResult(
+            { success: true, id, name },
+            `Added custom food: ${name}`
+          );
+          break;
+        }
+
+        if (subcommand === "delete") {
+          const id = positional[1];
+          if (!id) printError("Usage: nomnom foods delete <id>");
+
+          const result = deleteCustomFood(id);
+          if (!result.deleted) printError(`Custom food not found: ${id}`);
+
+          printResult(
+            { success: true, id, name: result.description },
+            `Deleted custom food: ${result.description}`
+          );
+          break;
+        }
+
+        printError(`Unknown foods subcommand "${subcommand}". Use: add, list, delete`);
         break;
       }
 
