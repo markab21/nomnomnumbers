@@ -26,6 +26,8 @@ jobs:
             -o data/usda/FoodData_Central_csv_2025-12-18.zip
       
       - name: Import USDA data
+        env:
+          NOMNOM_DATA_DIR: ${{ github.workspace }}/data
         run: bun run import:usda
       
       - name: Compress database
