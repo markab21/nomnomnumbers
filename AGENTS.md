@@ -15,6 +15,8 @@ bun start log "eggs" --calories 150 --protein 12  # Log a meal
 bun start today                   # Today's summary
 bun start history --limit 10      # Meal history
 bun start config                  # View configuration
+bun start goals --calories 2000 --protein 120  # Set daily goals
+bun start progress                              # Progress vs goals
 ```
 
 All commands output JSON to **stdout** by default. Add `--human` or `-h` after a command for readable format.
@@ -188,6 +190,80 @@ Same meal object shape as `today`.
 When setting a value: `{ "success": true, "dataDir": "/new/path" }` or `{ "success": true, "usdaPath": "/new/path" }`
 When resetting: `{ "success": true }`
 
+**goals [options]**
+- `--calories <n>` - Daily calorie target
+- `--protein <n>` - Daily protein target (g)
+- `--carbs <n>` - Daily carbs target (g)
+- `--fat <n>` - Daily fat target (g)
+- `--<macro>-direction <d>` - Goal direction: `under` or `over` (default: calories/carbs/fat=under, protein=over)
+- `--reset` - Clear all goals
+
+Set goals:
+```json
+{ "success": true, "goalsSet": ["calories", "protein", "carbs", "fat"] }
+```
+
+View goals:
+```json
+{
+  "goals": {
+    "calories": { "target": 2000, "direction": "under" },
+    "protein": { "target": 120, "direction": "over" },
+    "carbs": { "target": 250, "direction": "under" },
+    "fat": { "target": 65, "direction": "under" },
+    "updatedAt": "2026-02-21 12:00:00"
+  }
+}
+```
+
+No goals set:
+```json
+{ "goals": null }
+```
+
+Reset:
+```json
+{ "success": true }
+```
+
+**progress [options]**
+- `--date <n>` - Day offset (0=today, -1=yesterday)
+- Requires goals to be set (exits with error if none)
+
+```json
+{
+  "date": "2026-02-21",
+  "goals": {
+    "calories": { "target": 2000, "direction": "under" },
+    "protein": { "target": 120, "direction": "over" }
+  },
+  "today": {
+    "calories": { "actual": 1500, "goal": 2000, "remaining": 500, "percent": 75 },
+    "protein": { "actual": 95, "goal": 120, "remaining": 25, "percent": 79 },
+    "mealCount": 3
+  },
+  "streaks": {
+    "calories": { "current": 5, "best": 12, "direction": "under" },
+    "protein": { "current": 3, "best": 8, "direction": "over" },
+    "allGoals": { "current": 3, "best": 7 }
+  },
+  "weeklyAvg": {
+    "calories": 1650.5,
+    "protein": 102.3,
+    "carbs": 180.1,
+    "fat": 55.2,
+    "daysTracked": 7
+  }
+}
+```
+
+Streak semantics:
+- Streaks count consecutive days meeting the goal
+- `direction: "under"` means actual <= target
+- `direction: "over"` means actual >= target
+- Days with no meals break the streak
+- `allGoals` streak requires ALL goals to be met on each day
+
 ## Build & Development Commands
 
 ```bash
@@ -196,6 +272,7 @@ bun start                          # Run CLI
 bun run dev                        # Run with watch mode
 bun run typecheck                  # Run tsc --noEmit
 bun run import:usda                # Import USDA data (requires ZIP download)
+bun run smoke:goals                # Run goals/progress smoke test
 ```
 
 ## Project Structure
@@ -293,6 +370,15 @@ bun start today --human
 
 # View configuration
 bun start config --human
+
+# Test goals
+bun start goals --calories 2000 --protein 120 --human
+
+# Test progress (requires goals + meal data)
+bun start progress --human
+
+# Run goals smoke test
+bun run smoke:goals
 ```
 
 ## Commit Guidelines
