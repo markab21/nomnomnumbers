@@ -193,6 +193,8 @@ Commands:
     --set-data-dir <path>     Set data directory
     --set-usda-path <path>    Set USDA database path
     --reset                   Reset to defaults
+
+  mcp                         Start MCP server (stdio transport)
     
   help                        Show this help
 
@@ -771,6 +773,9 @@ To change settings:
         break;
       }
 
+      case "mcp":
+        printError("MCP server must be started directly: nomnom mcp");
+
       default:
         printError(`Unknown command: ${command}. Run 'nomnom help' for usage.`);
     }
@@ -789,8 +794,18 @@ To change settings:
 }
 
 if (import.meta.main) {
-  const result = await executeCommand(process.argv.slice(2));
-  if (result.stderr) process.stderr.write(result.stderr);
-  if (result.stdout) process.stdout.write(result.stdout);
-  process.exit(result.exitCode);
+  if (process.argv[2] === "mcp") {
+    try {
+      await import("./mcp");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to start MCP server";
+      process.stderr.write(JSON.stringify({ error: msg }) + "\n");
+      process.exit(1);
+    }
+  } else {
+    const result = await executeCommand(process.argv.slice(2));
+    if (result.stderr) process.stderr.write(result.stderr);
+    if (result.stdout) process.stdout.write(result.stdout);
+    process.exit(result.exitCode);
+  }
 }
