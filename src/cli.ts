@@ -242,6 +242,25 @@ function computeDateStr(offset: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+function computeZone(
+  actual: number,
+  target: number,
+  direction: "under" | "over",
+  tolerance: number
+): { zone: "met" | "near" | "over" | "under"; band: number } {
+  if (direction === "under") {
+    const band = Math.round(target * (1 + tolerance / 100) * 10) / 10;
+    if (actual <= target) return { zone: "met", band };
+    if (actual <= band) return { zone: "near", band };
+    return { zone: "over", band };
+  } else {
+    const band = Math.round(target * (1 - tolerance / 100) * 10) / 10;
+    if (actual >= target) return { zone: "met", band };
+    if (actual >= band) return { zone: "near", band };
+    return { zone: "under", band };
+  }
+}
+
 async function main() {
   if (!command || command === "help" || command === "--help" || command === "-h") {
     showHelp();
@@ -554,23 +573,35 @@ To change settings:
       for (const d of allDays) dayMap.set(d.date, d);
 
       // Goals object
-      const goalsObj: Record<string, { target: number; direction: string }> = {};
-      for (const g of goals) goalsObj[g.key] = { target: g.target, direction: g.direction };
+      const goalsObj: Record<string, { target: number; direction: string; tolerance: number }> = {};
+      for (const g of goals) goalsObj[g.key] = { target: g.target, direction: g.direction, tolerance: g.tolerance };
 
       // Today's progress per macro
-      const todayProgress: Record<string, { actual: number; goal: number; remaining: number; percent: number }> = {};
+      const todayProgress: Record<string, {
+        actual: number; goal: number; remaining: number; percent: number;
+        tolerance: number; band: number; zone: string;
+      }> = {};
       for (const g of goals) {
         const actual = todayTotals[g.key as keyof typeof todayTotals] as number;
         const remaining = g.target - actual;
         const percent = g.target === 0 ? (actual === 0 ? 100 : 999) : Math.round((actual / g.target) * 100);
-        todayProgress[g.key] = { actual, goal: g.target, remaining: Math.round(remaining * 10) / 10, percent };
+        const { zone, band } = computeZone(actual, g.target, g.direction, g.tolerance);
+        todayProgress[g.key] = {
+          actual, goal: g.target,
+          remaining: Math.round(remaining * 10) / 10,
+          percent,
+          tolerance: g.tolerance,
+          band,
+          zone,
+        };
       }
 
       // Helper: check if a day meets a single goal
       function meetsGoal(day: DailyTotal | undefined, goal: Goal): boolean {
         if (!day || day.mealCount === 0) return false;
         const actual = day[goal.key as keyof DailyTotal] as number;
-        return goal.direction === "under" ? actual <= goal.target : actual >= goal.target;
+        const { zone } = computeZone(actual, goal.target, goal.direction, goal.tolerance);
+        return zone === "met" || zone === "near";
       }
 
       // Helper: generate dates going backwards from a start date
@@ -692,8 +723,9 @@ To change settings:
         const remaining = p.remaining >= 0
           ? `${p.remaining} remaining`
           : `OVER by ${Math.abs(p.remaining)}`;
+        const zoneStr = p.tolerance > 0 ? ` [${p.zone}]` : "";
         humanLines.push(
-          `${label.padEnd(9)} ${String(p.actual).padStart(7)} / ${String(p.goal).padStart(5)}  (${String(p.percent).padStart(3)}%) ${bar(p.percent)} ${remaining}`
+          `${label.padEnd(9)} ${String(p.actual).padStart(7)} / ${String(p.goal).padStart(5)}  (${String(p.percent).padStart(3)}%) ${bar(p.percent)} ${remaining}${zoneStr}`
         );
       }
 
