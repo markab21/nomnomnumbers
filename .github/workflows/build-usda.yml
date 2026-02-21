@@ -1,0 +1,56 @@
+name: Build USDA Database
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag (e.g., 2025-12-18)"
+        required: true
+        default: "latest"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: oven-sh/setup-bun@v1
+      
+      - name: Install dependencies
+        run: bun install
+      
+      - name: Download USDA CSV
+        run: |
+          mkdir -p data/usda
+          curl -L "https://fdc.nal.usda.gov/sites/default/files/FoodData_Central_csv_2025-12-18.zip" \
+            -o data/usda/FoodData_Central_csv_2025-12-18.zip
+      
+      - name: Import USDA data
+        run: bun run import:usda
+      
+      - name: Compress database
+        run: |
+          gzip -k data/usda/usda_fdc.sqlite
+          ls -lh data/usda/
+      
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: usda
+          name: USDA FoodData Central Database
+          files: data/usda/usda_fdc.sqlite.gz
+          body: |
+            USDA FoodData Central SQLite database with FTS5 search.
+            
+            - Foods: 2M+ entries  
+            - Full-text search enabled
+            - Compatible with NomNom Numbers CLI
+            
+            To use:
+            ```bash
+            bun start init --download-usda
+            # or it auto-downloads on first search/lookup
+            bun start search "chicken"
+            ```
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

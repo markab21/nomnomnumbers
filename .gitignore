@@ -33,5 +33,8 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # Finder (MacOS) folder config
 .DS_Store
 
-# LanceDB data directories
+# Local data directories (should be in home dir, but just in case)
 data/
+*.db
+*.db-wal
+*.db-shm

@@ -1,26 +1,19 @@
 {
   "name": "nomnomnumbers",
-  "module": "src/index.ts",
+  "version": "2.0.0",
+  "module": "src/cli.ts",
   "type": "module",
   "private": true,
+  "bin": {
+    "nomnom": "./src/cli.ts"
+  },
   "scripts": {
-    "start": "bun run src/index.ts",
-    "start:http": "MCP_HTTP=true bun run src/index.ts",
-    "dev": "bun --watch run src/index.ts",
-    "dev:http": "MCP_HTTP=true bun --watch run src/index.ts",
+    "start": "bun run src/cli.ts",
+    "dev": "bun --watch run src/cli.ts",
     "typecheck": "tsc --noEmit",
     "import:usda": "bun run src/db/usda-import.ts"
   },
-  "dependencies": {
-    "@ai-sdk/openai": "^1.0.0",
-    "@ai-sdk/xai": "^1.0.0",
-    "@lancedb/lancedb": "^0.13.0",
-    "@mastra/core": "^0.10.0",
-    "@mastra/mcp": "^0.14.5",
-    "ai": "^4.0.0",
-    "apache-arrow": "^18.0.0",
-    "zod": "^3.24.0"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@types/bun": "latest"
   },
