@@ -31,7 +31,11 @@ function parseFlags(args: string[]): { flags: Record<string, string>; positional
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (arg?.startsWith("--")) {
+    if (arg === "--") {
+      // End-of-flags sentinel: everything after is positional
+      positional.push(...args.slice(i + 1).filter(Boolean));
+      break;
+    } else if (arg?.startsWith("--")) {
       // Handle --flag=value syntax
       const eqIdx = arg.indexOf("=");
       if (eqIdx !== -1) {
@@ -46,9 +50,9 @@ function parseFlags(args: string[]): { flags: Record<string, string>; positional
       } else {
         flags[key] = "true";
       }
-    } else if (arg?.startsWith("-") && arg.length === 2) {
-      // Handle single-letter flags like -h, -n
-      const key = arg.slice(1);
+    } else if (/^-[a-zA-Z]$/.test(arg ?? "")) {
+      // Handle single-letter flags like -h, -n (alphabetic only)
+      const key = arg!.slice(1);
       const value = args[i + 1];
       if (value && (!value.startsWith("-") || /^-\d/.test(value))) {
         flags[key] = value;

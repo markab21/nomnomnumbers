@@ -1,7 +1,5 @@
 # CLI Bugfixes Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
-
 **Goal:** Fix all 21 bugs/issues discovered during smoke testing of NomNom Numbers CLI.
 
 **Architecture:** Two source files (`src/cli.ts` ~406 lines, `src/db.ts` ~564 lines). Zero external dependencies, uses Bun's built-in SQLite. All fixes are in these two files. We'll fix issues in dependency order: flag parser first (enables testing everything else), then DB layer, then CLI handlers, then human output polish.
