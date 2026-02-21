@@ -246,6 +246,25 @@ export function getUSDAConnection(): Database | null {
   }
 }
 
+function ensureCustomFoodsFTS(db: Database): void {
+  const hasFTS = db.query(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='custom_foods_fts'"
+  ).get();
+
+  if (!hasFTS) {
+    db.exec(`
+      CREATE VIRTUAL TABLE custom_foods_fts USING fts5(
+        id UNINDEXED,
+        description,
+        brand
+      )
+    `);
+    db.exec(
+      "INSERT INTO custom_foods_fts(id, description, brand) SELECT id, description, COALESCE(brand, '') FROM custom_foods"
+    );
+  }
+}
+
 function ensureUSDAFTS(db: Database): void {
   // Check if FTS index exists; build it on first run if not
   const hasFTS = db.query(
@@ -299,6 +318,22 @@ function initTables(db: Database) {
       tolerance REAL NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS custom_foods (
+      id TEXT PRIMARY KEY,
+      description TEXT NOT NULL,
+      brand TEXT,
+      barcode TEXT,
+      serving_size TEXT,
+      calories REAL,
+      protein REAL,
+      carbs REAL,
+      fat REAL,
+      fiber REAL,
+      sugar REAL,
+      sodium REAL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   // Migration: add tolerance column if missing (existing databases)
@@ -307,6 +342,8 @@ function initTables(db: Database) {
   } catch {
     // Column already exists — ignore
   }
+
+  ensureCustomFoodsFTS(db);
 }
 
 export interface FoodResult {
@@ -336,6 +373,22 @@ export interface MealResult {
   protein: number | null;
   carbs: number | null;
   fat: number | null;
+}
+
+export interface CustomFood {
+  id: string;
+  description: string;
+  brand: string | null;
+  barcode: string | null;
+  servingSize: string | null;
+  calories: number | null;
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
+  fiber: number | null;
+  sugar: number | null;
+  sodium: number | null;
+  createdAt: string;
 }
 
 export function searchFoods(query: string, limit: number = 10): FoodResult[] {
@@ -417,6 +470,141 @@ export function lookupBarcode(barcode: string): FoodResult | null {
 
   if (!row) return null;
   return rowToFoodResult(row);
+}
+
+export function addCustomFood(input: {
+  description: string;
+  brand?: string;
+  barcode?: string;
+  servingSize?: string;
+  calories?: number;
+  protein?: number;
+  carbs?: number;
+  fat?: number;
+  fiber?: number;
+  sugar?: number;
+  sodium?: number;
+}): string {
+  const db = getDb();
+  const id = crypto.randomUUID();
+
+  db.query(`
+    INSERT INTO custom_foods (id, description, brand, barcode, serving_size,
+                              calories, protein, carbs, fat, fiber, sugar, sodium)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    input.description,
+    input.brand ?? null,
+    input.barcode ?? null,
+    input.servingSize ?? null,
+    input.calories ?? null,
+    input.protein ?? null,
+    input.carbs ?? null,
+    input.fat ?? null,
+    input.fiber ?? null,
+    input.sugar ?? null,
+    input.sodium ?? null
+  );
+
+  // Keep FTS in sync
+  db.query("INSERT INTO custom_foods_fts(id, description, brand) VALUES (?, ?, ?)").run(
+    id, input.description, input.brand ?? ""
+  );
+
+  return id;
+}
+
+export function listCustomFoods(): CustomFood[] {
+  const db = getDb();
+  const rows = db.query(`
+    SELECT id, description, brand, barcode, serving_size, calories, protein,
+           carbs, fat, fiber, sugar, sodium, created_at
+    FROM custom_foods ORDER BY created_at DESC
+  `).all() as Array<{
+    id: string; description: string; brand: string | null; barcode: string | null;
+    serving_size: string | null; calories: number | null; protein: number | null;
+    carbs: number | null; fat: number | null; fiber: number | null;
+    sugar: number | null; sodium: number | null; created_at: string;
+  }>;
+
+  return rows.map(r => ({
+    id: r.id, description: r.description, brand: r.brand, barcode: r.barcode,
+    servingSize: r.serving_size, calories: r.calories, protein: r.protein,
+    carbs: r.carbs, fat: r.fat, fiber: r.fiber, sugar: r.sugar,
+    sodium: r.sodium, createdAt: r.created_at,
+  }));
+}
+
+export function deleteCustomFood(id: string): { deleted: boolean; description: string | null } {
+  const db = getDb();
+  const row = db.query("SELECT description FROM custom_foods WHERE id = ?").get(id) as { description: string } | null;
+  if (!row) return { deleted: false, description: null };
+
+  db.query("DELETE FROM custom_foods WHERE id = ?").run(id);
+  db.query("DELETE FROM custom_foods_fts WHERE id = ?").run(id);
+
+  return { deleted: true, description: row.description };
+}
+
+export function searchCustomFoods(query: string, limit: number = 10): CustomFood[] {
+  const db = getDb();
+
+  const words = query.trim()
+    .replace(/["\*\+\^\(\)\{\}~|\\!:\-]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(w => `"${w}"`);
+
+  if (words.length === 0) return [];
+
+  const ftsQuery = words.join(" ");
+
+  const rows = db.query(`
+    SELECT cf.id, cf.description, cf.brand, cf.barcode, cf.serving_size,
+           cf.calories, cf.protein, cf.carbs, cf.fat, cf.fiber, cf.sugar,
+           cf.sodium, cf.created_at
+    FROM custom_foods_fts
+    JOIN custom_foods cf ON custom_foods_fts.id = cf.id
+    WHERE custom_foods_fts MATCH ?
+    ORDER BY rank
+    LIMIT ?
+  `).all(ftsQuery, limit) as Array<{
+    id: string; description: string; brand: string | null; barcode: string | null;
+    serving_size: string | null; calories: number | null; protein: number | null;
+    carbs: number | null; fat: number | null; fiber: number | null;
+    sugar: number | null; sodium: number | null; created_at: string;
+  }>;
+
+  return rows.map(r => ({
+    id: r.id, description: r.description, brand: r.brand, barcode: r.barcode,
+    servingSize: r.serving_size, calories: r.calories, protein: r.protein,
+    carbs: r.carbs, fat: r.fat, fiber: r.fiber, sugar: r.sugar,
+    sodium: r.sodium, createdAt: r.created_at,
+  }));
+}
+
+export function lookupCustomBarcode(barcode: string): CustomFood | null {
+  const db = getDb();
+  const row = db.query(`
+    SELECT id, description, brand, barcode, serving_size, calories, protein,
+           carbs, fat, fiber, sugar, sodium, created_at
+    FROM custom_foods WHERE barcode = ? LIMIT 1
+  `).get(barcode) as {
+    id: string; description: string; brand: string | null; barcode: string | null;
+    serving_size: string | null; calories: number | null; protein: number | null;
+    carbs: number | null; fat: number | null; fiber: number | null;
+    sugar: number | null; sodium: number | null; created_at: string;
+  } | null;
+
+  if (!row) return null;
+
+  return {
+    id: row.id, description: row.description, brand: row.brand, barcode: row.barcode,
+    servingSize: row.serving_size, calories: row.calories, protein: row.protein,
+    carbs: row.carbs, fat: row.fat, fiber: row.fiber, sugar: row.sugar,
+    sodium: row.sodium, createdAt: row.created_at,
+  };
 }
 
 export function logMeal(input: {
