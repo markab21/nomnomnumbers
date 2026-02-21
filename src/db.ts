@@ -52,10 +52,11 @@ export function loadConfig(): Config {
     try {
       const raw = readFileSync(CONFIG_FILE, "utf-8");
       const parsed = JSON.parse(raw);
+      const dataDir = parsed.dataDir || DATA_DIR;
       return {
-        dataDir: parsed.dataDir || DATA_DIR,
-        usdaDbPath: parsed.usdaDbPath || join(DATA_DIR, "usda", "usda_fdc.sqlite"),
-        mealDbPath: parsed.mealDbPath || join(DATA_DIR, "nomnom.db"),
+        dataDir,
+        usdaDbPath: parsed.usdaDbPath || join(dataDir, "usda", "usda_fdc.sqlite"),
+        mealDbPath: parsed.mealDbPath || join(dataDir, "nomnom.db"),
       };
     } catch {
       // Invalid config, use defaults
@@ -102,9 +103,11 @@ export function setDataDir(path: string): void {
   const cfg = getConfig();
   cfg.dataDir = path;
   cfg.mealDbPath = join(path, "nomnom.db");
+  cfg.usdaDbPath = join(path, "usda", "usda_fdc.sqlite");
   saveConfig(cfg);
   config = cfg;
   db = null;
+  usdaDb = null;
 }
 
 export function setUSDAPath(path: string): void {
@@ -324,7 +327,13 @@ export function searchFoods(query: string, limit: number = 10): FoodResult[] {
   const usda = getUSDAConnection();
   if (!usda) return [];
 
-  const words = query.trim().split(/\s+/).filter(Boolean);
+  // Sanitize for FTS5: strip special chars, quote each word as a literal term
+  const words = query.trim()
+    .replace(/[^\w\s]/g, " ")  // Remove all non-word, non-space chars
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(w => `"${w}"`);       // Quote each word to prevent FTS5 operator injection
+
   if (words.length === 0) return [];
 
   const ftsQuery = words.join(" ");
@@ -423,19 +432,19 @@ export function logMeal(input: {
   stmt.run(
     id,
     input.foodName,
-    input.foodId || null,
-    input.barcode || null,
+    input.foodId ?? null,
+    input.barcode ?? null,
     input.quantity,
-    input.unit || "serving",
-    input.mealType || "snack",
-    input.notes || null,
-    input.calories || null,
-    input.protein || null,
-    input.carbs || null,
-    input.fat || null,
-    input.fiber || null,
-    input.sugar || null,
-    input.sodium || null
+    input.unit ?? "serving",
+    input.mealType ?? "snack",
+    input.notes ?? null,
+    input.calories ?? null,
+    input.protein ?? null,
+    input.carbs ?? null,
+    input.fat ?? null,
+    input.fiber ?? null,
+    input.sugar ?? null,
+    input.sodium ?? null
   );
 
   return id;
@@ -547,10 +556,10 @@ export function getDailyTotals(date: string): {
   };
 
   return {
-    calories: row.calories,
-    protein: row.protein,
-    carbs: row.carbs,
-    fat: row.fat,
+    calories: Math.round(row.calories * 10) / 10,
+    protein: Math.round(row.protein * 10) / 10,
+    carbs: Math.round(row.carbs * 10) / 10,
+    fat: Math.round(row.fat * 10) / 10,
     mealCount: row.meal_count,
   };
 }

@@ -32,9 +32,25 @@ function parseFlags(args: string[]): { flags: Record<string, string>; positional
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg?.startsWith("--")) {
+      // Handle --flag=value syntax
+      const eqIdx = arg.indexOf("=");
+      if (eqIdx !== -1) {
+        flags[arg.slice(2, eqIdx)] = arg.slice(eqIdx + 1);
+        continue;
+      }
       const key = arg.slice(2);
       const value = args[i + 1];
-      if (value && !value.startsWith("--")) {
+      if (value && !value.startsWith("-")) {
+        flags[key] = value;
+        i++;
+      } else {
+        flags[key] = "true";
+      }
+    } else if (arg?.startsWith("-") && arg.length === 2) {
+      // Handle single-letter flags like -h, -n
+      const key = arg.slice(1);
+      const value = args[i + 1];
+      if (value && !value.startsWith("-")) {
         flags[key] = value;
         i++;
       } else {
@@ -47,6 +63,21 @@ function parseFlags(args: string[]): { flags: Record<string, string>; positional
 
   return { flags, positional };
 }
+
+function parsePositiveInt(value: string | undefined, defaultValue: number, max: number = 100): number {
+  if (value === undefined) return defaultValue;
+  const n = parseInt(value, 10);
+  if (isNaN(n) || n < 1) return defaultValue;
+  return Math.min(n, max);
+}
+
+function parseOptionalFloat(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const n = parseFloat(value);
+  return isNaN(n) ? undefined : n;
+}
+
+const VALID_MEAL_TYPES = new Set(["breakfast", "lunch", "dinner", "snack"]);
 
 function formatFood(food: FoodResult): Record<string, unknown> {
   return {
@@ -81,16 +112,17 @@ function formatMeal(meal: MealResult): Record<string, unknown> {
   };
 }
 
+let humanMode = false;
+
 function printResult(data: unknown, human?: string) {
-  const { flags } = parseFlags(args);
-  if (flags.human || flags.h) {
+  if (humanMode) {
     console.log(human || JSON.stringify(data, null, 2));
   } else {
     console.log(JSON.stringify(data, null, 2));
   }
 }
 
-function printError(message: string) {
+function printError(message: string): never {
   console.error(JSON.stringify({ error: message }));
   process.exit(1);
 }
@@ -188,6 +220,7 @@ async function main() {
   }
 
   const { flags, positional } = parseFlags(args.slice(1));
+  humanMode = flags.human === "true" || flags.h === "true";
 
   switch (command) {
     case "init": {
@@ -290,13 +323,13 @@ To change settings:
     }
 
     case "search": {
+      const query = positional.join(" ");
+      if (!query) printError("Usage: nomnom search <query>");
+      const limit = parsePositiveInt(flags.limit, 10, 100);
       const usda = await ensureUSDA();
       if (!usda.ready) {
         printError(usda.error || "USDA database not available");
       }
-      const query = positional.join(" ");
-      if (!query) printError("Usage: nomnom search <query>");
-      const limit = parseInt(flags.limit || "10", 10);
       const results = searchFoods(query, limit);
       printResult(
         { query, count: results.length, results: results.map(formatFood) },
@@ -306,7 +339,7 @@ To change settings:
               .map(
                 (f, i) =>
                   `${i + 1}. ${f.description}${f.brand ? ` (${f.brand})` : ""}\n` +
-                  `   ${f.calories || "?"} cal | ${f.protein || "?"}p ${f.carbs || "?"}c ${f.fat || "?"}f`
+                  `   ${f.calories ?? "?"} cal | ${f.protein ?? "?"}p ${f.carbs ?? "?"}c ${f.fat ?? "?"}f`
               )
               .join("\n\n")
       );
@@ -314,12 +347,12 @@ To change settings:
     }
 
     case "lookup": {
+      const barcode = positional[0];
+      if (!barcode) printError("Usage: nomnom lookup <barcode>");
       const usda = await ensureUSDA();
       if (!usda.ready) {
         printError(usda.error || "USDA database not available");
       }
-      const barcode = positional[0];
-      if (!barcode) printError("Usage: nomnom lookup <barcode>");
       const food = lookupBarcode(barcode!);
       if (!food) {
         printResult({ found: false, barcode }, `Barcode ${barcode} not found`);
@@ -327,7 +360,7 @@ To change settings:
         printResult(
           { found: true, ...formatFood(food) },
           `${food.description}${food.brand ? ` (${food.brand})` : ""}\n` +
-            `${food.calories || "?"} cal | ${food.protein || "?"}p ${food.carbs || "?"}c ${food.fat || "?"}f`
+            `${food.calories ?? "?"} cal | ${food.protein ?? "?"}p ${food.carbs ?? "?"}c ${food.fat ?? "?"}f`
         );
       }
       break;
@@ -337,29 +370,37 @@ To change settings:
       const foodName = positional.join(" ");
       if (!foodName) printError("Usage: nomnom log <food> [--qty <n>] [--calories <n>] ...");
 
+      const quantity = parseOptionalFloat(flags.qty) ?? 1;
+      const mealType = flags.type || "snack";
+
+      if (!VALID_MEAL_TYPES.has(mealType)) {
+        printError(`Invalid meal type "${mealType}". Must be one of: breakfast, lunch, dinner, snack`);
+      }
+
       const id = logMeal({
         foodName,
-        quantity: parseFloat(flags.qty || "1"),
+        quantity,
         unit: flags.unit || "serving",
-        mealType: flags.type || "snack",
+        mealType,
         notes: flags.notes,
-        calories: flags.calories ? parseFloat(flags.calories) : undefined,
-        protein: flags.protein ? parseFloat(flags.protein) : undefined,
-        carbs: flags.carbs ? parseFloat(flags.carbs) : undefined,
-        fat: flags.fat ? parseFloat(flags.fat) : undefined,
+        calories: parseOptionalFloat(flags.calories),
+        protein: parseOptionalFloat(flags.protein),
+        carbs: parseOptionalFloat(flags.carbs),
+        fat: parseOptionalFloat(flags.fat),
       });
 
       printResult(
-        { success: true, id, foodName, quantity: flags.qty || 1 },
-        `Logged ${flags.qty || 1} ${flags.unit || "serving"} of ${foodName}`
+        { success: true, id, foodName, quantity },
+        `Logged ${quantity} ${flags.unit || "serving"} of ${foodName}`
       );
       break;
     }
 
     case "today": {
-      const today = new Date().toISOString().split("T")[0];
-      const meals = getMealsByDate(today!);
-      const totals = getDailyTotals(today!);
+      const now = new Date();
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      const meals = getMealsByDate(today);
+      const totals = getDailyTotals(today);
 
       printResult(
         { date: today, totals, meals: meals.map(formatMeal) },
@@ -370,8 +411,8 @@ To change settings:
             : meals
                 .map(
                   (m) =>
-                    `- ${m.foodName} (${m.quantity} ${m.unit})\n` +
-                      `  ${m.calories || "?"} cal | ${m.protein || "?"}p | ${m.loggedAt}`
+                    `- ${m.foodName} (${m.quantity} ${m.unit}) [${m.mealType}]\n` +
+                      `  ${m.calories ?? "?"} cal | ${m.protein ?? "?"}p ${m.carbs ?? "?"}c ${m.fat ?? "?"}f${m.notes ? ` | ${m.notes}` : ""} | ${m.loggedAt}`
                 )
                 .join("\n"))
       );
@@ -379,7 +420,7 @@ To change settings:
     }
 
     case "history": {
-      const limit = parseInt(flags.limit || "20", 10);
+      const limit = parsePositiveInt(flags.limit, 20, 500);
       const meals = getMealHistory(limit);
       printResult(
         { count: meals.length, meals: meals.map(formatMeal) },
@@ -389,7 +430,7 @@ To change settings:
               .map(
                 (m) =>
                   `${m.loggedAt} - ${m.foodName} (${m.quantity} ${m.unit})\n` +
-                    `  ${m.calories || "?"} cal | ${m.protein || "?"}p ${m.carbs || "?"}c ${m.fat || "?"}f`
+                    `  ${m.calories ?? "?"} cal | ${m.protein ?? "?"}p ${m.carbs ?? "?"}c ${m.fat ?? "?"}f`
               )
               .join("\n\n")
       );
