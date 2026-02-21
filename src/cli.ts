@@ -3,6 +3,8 @@ import {
   searchFoods,
   lookupBarcode,
   logMeal,
+  getMealById,
+  deleteMeal,
   getMealsByDate,
   getMealHistory,
   getDailyTotals,
@@ -172,6 +174,8 @@ Commands:
     --fat <n>                 Fat (g)
     --notes <text>            Notes
     
+  delete <id>                 Delete a logged meal by ID
+
   today                       Show today's meals and totals
     
   history [options]           Show meal history
@@ -436,6 +440,22 @@ To change settings:
               `${food.calories ?? "?"} cal | ${food.protein ?? "?"}p ${food.carbs ?? "?"}c ${food.fat ?? "?"}f`
           );
         }
+        break;
+      }
+
+      case "delete": {
+        const id = positional[0];
+        if (!id) printError("Usage: nomnom delete <id>");
+
+        const meal = getMealById(id!);
+        if (!meal) printError(`Meal not found: ${id}`);
+
+        deleteMeal(id!);
+
+        printResult(
+          { success: true, id, foodName: meal!.foodName },
+          `Deleted: ${meal!.foodName}`
+        );
         break;
       }
 
