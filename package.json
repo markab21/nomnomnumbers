@@ -1,12 +1,14 @@
 {
   "name": "nomnomnumbers",
-  "version": "2.0.0",
+  "version": "2.1.0",
+  "description": "Nutrition tracking CLI for AI agents — food search, barcode lookup, meal logging with JSON output",
   "module": "src/cli.ts",
   "type": "module",
-  "private": true,
   "bin": {
-    "nomnom": "./src/cli.ts"
+    "nomnom": "./src/cli.ts",
+    "nomnom-mcp": "./src/mcp.ts"
   },
+  "files": ["src/", "README.md"],
   "scripts": {
     "start": "bun run src/cli.ts",
     "dev": "bun --watch run src/cli.ts",
@@ -16,6 +18,15 @@
     "smoke:month": "bun scripts/smoke-test-month.ts",
     "smoke:goals": "bun scripts/smoke-test-goals.ts",
     "smoke:tolerance": "bun scripts/smoke-test-tolerance.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/markab21/nomnomnumbers.git"
+  },
+  "keywords": ["nutrition", "food", "tracking", "cli", "mcp", "ai", "agents"],
+  "license": "MIT",
+  "engines": {
+    "bun": ">=1.0.0"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
