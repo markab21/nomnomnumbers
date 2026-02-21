@@ -21,7 +21,9 @@ import {
   resetGoals,
   type FoodResult,
   type MealResult,
+  getAllDailyTotals,
   type Goal,
+  type DailyTotal,
 } from "./db";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -232,6 +234,12 @@ Output is JSON by default. Add --human or -h for readable format.
 `);
 }
 
+function computeDateStr(offset: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 async function main() {
   if (!command || command === "help" || command === "--help" || command === "-h") {
     showHelp();
@@ -417,10 +425,7 @@ To change settings:
 
     case "today": {
       const offsetDays = parseInt(flags.date ?? "0", 10);
-      const offset = isNaN(offsetDays) ? 0 : offsetDays;
-      const now = new Date();
-      now.setDate(now.getDate() + offset);
-      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      const today = computeDateStr(isNaN(offsetDays) ? 0 : offsetDays);
       const meals = getMealsByDate(today);
       const totals = getDailyTotals(today);
 
@@ -510,6 +515,181 @@ To change settings:
           .map((g) => `${g.key}: ${g.target} (${g.direction})`)
           .join("\n") + `\n\nLast updated: ${latestUpdate}`
       );
+      break;
+    }
+
+    case "progress": {
+      const goals = getGoals();
+      if (goals.length === 0) {
+        printError("No goals set. Use 'nomnom goals --calories 2000 ...' to set goals.");
+      }
+
+      const offsetDays = parseInt(flags.date ?? "0", 10);
+      const targetDate = computeDateStr(isNaN(offsetDays) ? 0 : offsetDays);
+      const todayTotals = getDailyTotals(targetDate);
+      const allDays = getAllDailyTotals();
+
+      // Build a map of date -> totals for fast lookup
+      const dayMap = new Map<string, DailyTotal>();
+      for (const d of allDays) dayMap.set(d.date, d);
+
+      // Goals object
+      const goalsObj: Record<string, { target: number; direction: string }> = {};
+      for (const g of goals) goalsObj[g.key] = { target: g.target, direction: g.direction };
+
+      // Today's progress per macro
+      const todayProgress: Record<string, { actual: number; goal: number; remaining: number; percent: number }> = {};
+      for (const g of goals) {
+        const actual = todayTotals[g.key as keyof typeof todayTotals] as number;
+        const remaining = g.target - actual;
+        const percent = g.target === 0 ? (actual === 0 ? 100 : 999) : Math.round((actual / g.target) * 100);
+        todayProgress[g.key] = { actual, goal: g.target, remaining: Math.round(remaining * 10) / 10, percent };
+      }
+
+      // Helper: check if a day meets a single goal
+      function meetsGoal(day: DailyTotal | undefined, goal: Goal): boolean {
+        if (!day || day.mealCount === 0) return false;
+        const actual = day[goal.key as keyof DailyTotal] as number;
+        return goal.direction === "under" ? actual <= goal.target : actual >= goal.target;
+      }
+
+      // Helper: generate dates going backwards from a start date
+      function datesBackward(from: string): string[] {
+        const dates: string[] = [];
+        const d = new Date(from + "T12:00:00");
+        // Go back far enough to cover all history
+        for (let i = 0; i < 1000; i++) {
+          dates.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
+          d.setDate(d.getDate() - 1);
+        }
+        return dates;
+      }
+
+      const datesBack = datesBackward(targetDate);
+
+      // Compute streaks for each goal
+      const streaks: Record<string, { current: number; best: number; direction: string }> = {};
+      for (const g of goals) {
+        // Current streak: walk backward from targetDate
+        let current = 0;
+        for (const date of datesBack) {
+          const day = dayMap.get(date);
+          if (!day || day.mealCount === 0) break;
+          if (meetsGoal(day, g)) {
+            current++;
+          } else {
+            break;
+          }
+        }
+
+        // Best streak: scan all days in order
+        let best = 0;
+        let run = 0;
+        for (const day of allDays) {
+          if (meetsGoal(day, g)) {
+            run++;
+            if (run > best) best = run;
+          } else {
+            run = 0;
+          }
+        }
+
+        streaks[g.key] = { current, best, direction: g.direction };
+      }
+
+      // allGoals streak
+      let allCurrent = 0;
+      for (const date of datesBack) {
+        const day = dayMap.get(date);
+        if (!day || day.mealCount === 0) break;
+        if (goals.every((g) => meetsGoal(day, g))) {
+          allCurrent++;
+        } else {
+          break;
+        }
+      }
+      let allBest = 0;
+      let allRun = 0;
+      for (const day of allDays) {
+        if (goals.every((g) => meetsGoal(day, g))) {
+          allRun++;
+          if (allRun > allBest) allBest = allRun;
+        } else {
+          allRun = 0;
+        }
+      }
+
+      // Weekly average (7-day rolling ending at targetDate)
+      const weekDates: string[] = [];
+      {
+        const d = new Date(targetDate + "T12:00:00");
+        for (let i = 0; i < 7; i++) {
+          weekDates.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
+          d.setDate(d.getDate() - 1);
+        }
+      }
+      let weekCal = 0, weekPro = 0, weekCarb = 0, weekFat = 0, daysTracked = 0;
+      for (const wd of weekDates) {
+        const day = dayMap.get(wd);
+        if (day && day.mealCount > 0) {
+          weekCal += day.calories;
+          weekPro += day.protein;
+          weekCarb += day.carbs;
+          weekFat += day.fat;
+          daysTracked++;
+        }
+      }
+
+      const weeklyAvg = daysTracked > 0
+        ? {
+            calories: Math.round((weekCal / daysTracked) * 10) / 10,
+            protein: Math.round((weekPro / daysTracked) * 10) / 10,
+            carbs: Math.round((weekCarb / daysTracked) * 10) / 10,
+            fat: Math.round((weekFat / daysTracked) * 10) / 10,
+            daysTracked,
+          }
+        : { calories: 0, protein: 0, carbs: 0, fat: 0, daysTracked: 0 };
+
+      // Build JSON result
+      const result = {
+        date: targetDate,
+        goals: goalsObj,
+        today: { ...todayProgress, mealCount: todayTotals.mealCount },
+        streaks: { ...streaks, allGoals: { current: allCurrent, best: allBest } },
+        weeklyAvg,
+      };
+
+      // Human-readable format
+      function bar(percent: number): string {
+        const filled = Math.min(Math.round(percent / 10), 10);
+        return "■".repeat(filled) + "░".repeat(10 - filled);
+      }
+
+      const humanLines = [`Progress for ${targetDate}\n`];
+      for (const g of goals) {
+        const p = todayProgress[g.key]!;
+        const label = g.key.charAt(0).toUpperCase() + g.key.slice(1);
+        const remaining = p.remaining >= 0
+          ? `${p.remaining} remaining`
+          : `OVER by ${Math.abs(p.remaining)}`;
+        humanLines.push(
+          `${label.padEnd(9)} ${String(p.actual).padStart(7)} / ${String(p.goal).padStart(5)}  (${String(p.percent).padStart(3)}%) ${bar(p.percent)} ${remaining}`
+        );
+      }
+
+      const streakParts: string[] = [];
+      for (const g of goals) {
+        const s = streaks[g.key]!;
+        const abbr = g.key.slice(0, 3);
+        streakParts.push(`${abbr} ${s.current}d (best ${s.best}d)`);
+      }
+      streakParts.push(`all ${allCurrent}d (best ${allBest}d)`);
+      humanLines.push(`\nStreaks:  ${streakParts.join(" | ")}`);
+      humanLines.push(
+        `\n7-day avg: ${weeklyAvg.calories} cal | ${weeklyAvg.protein}p ${weeklyAvg.carbs}c ${weeklyAvg.fat}f (${weeklyAvg.daysTracked} days tracked)`
+      );
+
+      printResult(result, humanLines.join("\n"));
       break;
     }
 
