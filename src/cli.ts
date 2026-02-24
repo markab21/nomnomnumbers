@@ -630,10 +630,37 @@ To change settings:
         const meals = getMealsByDate(today);
         const totals = getDailyTotals(today);
 
+        // Include goals/remaining if goals are set
+        const goals = getGoals();
+        let goalsObj: Record<string, number> | null = null;
+        let remainingObj: Record<string, number> | null = null;
+
+        if (goals.length > 0) {
+          goalsObj = {};
+          remainingObj = {};
+          for (const g of goals) {
+            goalsObj[g.key] = g.target;
+            const actual = totals[g.key as keyof typeof totals] as number;
+            remainingObj[g.key] = Math.max(0, Math.round((g.target - actual) * 10) / 10);
+          }
+        }
+
+        const result: Record<string, unknown> = {
+          date: today,
+          totals,
+          meals: meals.map(formatMeal),
+        };
+        if (goalsObj) result.goals = goalsObj;
+        if (remainingObj) result.remaining = remainingObj;
+
         printResult(
-          { date: today, totals, meals: meals.map(formatMeal) },
+          result,
           `Today's Summary (${today})\n` +
-          `${totals.mealCount} meals | ${totals.calories} cal | ${totals.protein}p ${totals.carbs}c ${totals.fat}f\n\n` +
+          `${totals.mealCount} meals | ${totals.calories} cal | ${totals.protein}p ${totals.carbs}c ${totals.fat}f\n` +
+          (goalsObj && remainingObj
+            ? `\nRemaining: ${Object.entries(remainingObj).map(([k, v]) => `${k}: ${v}`).join(" | ")}\n`
+            : "") +
+          `\n` +
           (meals.length === 0
             ? "No meals logged"
             : meals
