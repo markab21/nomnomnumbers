@@ -201,18 +201,51 @@ Returns:
 }
 ```
 
+When goals are set (via `goals` command), `today` also includes:
+```json
+{
+  "goals": { "calories": 2000, "protein": 150 },
+  "remaining": { "calories": 600, "protein": 50 }
+}
+```
+
 ### history [options]
 
 Show meal history.
 
 Options:
 - `--limit <n>` - Max results (default: 20, max: 500)
+- `--offset <n>` - Skip first N results for pagination (default: 0)
 
 ```bash
 bun start history --limit 10 --human
+bun start history --limit 50 --offset 50  # page 2
 ```
 
-Returns the same meal object shape as `today`. Response: `{ "count": N, "meals": [...] }`
+Returns the same meal object shape as `today`. Response: `{ "count": N, "offset": 0, "meals": [...] }`
+
+### trends [options]
+
+Show nutrition trends over time, pre-computed for AI agents.
+
+Options:
+- `--days <n>` - Number of days to analyze (default: 7, max: 90)
+
+```bash
+bun start trends --days 7
+```
+
+Returns:
+```json
+{
+  "days": 7,
+  "period": { "from": "2026-02-16", "to": "2026-02-22" },
+  "averages": { "calories": 2100, "protein": 145, "carbs": 190, "fat": 55 },
+  "daily": [
+    { "date": "2026-02-16", "calories": 1900, "protein": 130, "carbs": 180, "fat": 50, "mealCount": 3 }
+  ]
+}
+```
 
 ### config [options]
 
