@@ -1,18 +1,31 @@
 # NomNom Numbers
 
-CLI-based nutrition tracking tool for AI agents. Search foods, log meals, and track macros - all outputting JSON for easy parsing.
+The memory and brains behind agentic nutrition tracking. 
 
-## Installation
+NomNom Numbers is a headless, CLI-based nutrition backend designed specifically to be consumed by AI agents (like Claude Desktop) via MCP. It handles the complex data modeling, USDA database searches, macro tracking, and gamification logic, providing a clean, deterministic JSON interface for your AI frontend.
+
+## Installation & Usage
+
+NomNom is built with [Bun](https://bun.sh/). The easiest way to use it is directly via `bunx`:
 
 ```bash
-bun install
+# Run directly without installing
+bunx nomnomnumbers --help
 ```
+
+To install globally so it's always available as `nomnom`:
+
+```bash
+bun install -g nomnomnumbers
+```
+
+*(If cloning the repo for development, use `bun install` and run via `bun start <command>`)*
 
 ## Quick Start
 
 ```bash
-# Initialize (auto-runs on first command if needed)
-bun start init --human
+# Initialize database (auto-runs on first command if needed)
+bunx nomnomnumbers init --human
 
 # Search for foods
 bun start search "chicken breast" --human
@@ -24,14 +37,14 @@ bun start log "Grilled Chicken" --calories 165 --protein 31 --human
 bun start today --human
 
 # View configuration
-bun start config --human
+bunx nomnomnumbers config --human
 ```
 
 ## CLI Commands
 
 All commands output JSON to **stdout** by default. Add `--human` or `-h` after a command for readable format.
 
-> **Note:** `bun start -h` shows help. Use `-h` after a command name, e.g. `bun start today -h`.
+> **Note:** Use `-h` after a command name for help, e.g., `bunx nomnomnumbers today -h`.
 
 ### Output Format
 
@@ -84,8 +97,8 @@ With `--download-usda`:
 Search USDA food database (2M+ foods). Auto-downloads database on first use.
 
 ```bash
-bun start search "big mac" --limit 5
-bun start search "quest bar" --human
+bunx nomnomnumbers search "big mac" --limit 5
+bunx nomnomnumbers search "quest bar" --human
 ```
 
 Options:
@@ -122,7 +135,7 @@ Fields `brand`, `barcode`, `servingSize`, `fiber`, `sugar`, `sodium` may be `nul
 Look up a food by barcode (UPC/EAN). Auto-downloads USDA database on first use.
 
 ```bash
-bun start lookup 00000000924665
+bunx nomnomnumbers lookup 00000000924665
 ```
 
 Returns (found):
@@ -161,8 +174,8 @@ Options:
 - `--notes <text>`
 
 ```bash
-bun start log "Eggs" --qty 2 --calories 140 --protein 12 --type breakfast
-bun start log "Olive Oil" --qty 1.5 --unit tbsp --calories 180 --fat 21
+bunx nomnomnumbers log "Eggs" --qty 2 --calories 140 --protein 12 --type breakfast
+bunx nomnomnumbers log "Olive Oil" --qty 1.5 --unit tbsp --calories 180 --fat 21
 ```
 
 Returns:
@@ -175,7 +188,7 @@ Returns:
 Delete a logged meal by its ID.
 
 ```bash
-bun start delete "uuid"
+bunx nomnomnumbers delete "uuid"
 ```
 
 Returns:
@@ -196,7 +209,7 @@ Options:
 - `--notes <text>`
 
 ```bash
-bun start edit "uuid" --qty 3 --notes "Extra hungry"
+bunx nomnomnumbers edit "uuid" --qty 3 --notes "Extra hungry"
 ```
 
 Returns:
@@ -214,9 +227,9 @@ Subcommands:
 - `delete <id>` - Delete a custom food
 
 ```bash
-bun start foods add "My Secret Recipe" --calories 400 --protein 30
-bun start foods list --human
-bun start foods delete "uuid"
+bunx nomnomnumbers foods add "My Secret Recipe" --calories 400 --protein 30
+bunx nomnomnumbers foods list --human
+bunx nomnomnumbers foods delete "uuid"
 ```
 
 ### today
@@ -224,7 +237,7 @@ bun start foods delete "uuid"
 Show today's meals and totals.
 
 ```bash
-bun start today --human
+bunx nomnomnumbers today --human
 ```
 
 Returns:
@@ -267,8 +280,8 @@ Options:
 - `--offset <n>` - Skip first N results for pagination (default: 0)
 
 ```bash
-bun start history --limit 10 --human
-bun start history --limit 50 --offset 50  # page 2
+bunx nomnomnumbers history --limit 10 --human
+bunx nomnomnumbers history --limit 50 --offset 50  # page 2
 ```
 
 Returns the same meal object shape as `today`. Response: `{ "count": N, "offset": 0, "meals": [...] }`
@@ -281,7 +294,7 @@ Options:
 - `--days <n>` - Number of days to analyze (default: 7, max: 90)
 
 ```bash
-bun start trends --days 7
+bunx nomnomnumbers trends --days 7
 ```
 
 Returns:
@@ -307,7 +320,7 @@ Options:
 - `--reset` - Clear all goals
 
 ```bash
-bun start goals --calories 2000 --protein 150 --protein-direction over
+bunx nomnomnumbers goals --calories 2000 --protein 150 --protein-direction over
 ```
 
 Returns:
@@ -326,7 +339,7 @@ Options:
 - `--date <n>` - Day offset (0=today, -1=yesterday)
 
 ```bash
-bun start progress --human
+bunx nomnomnumbers progress --human
 ```
 
 Returns detailed JSON with today's progress, goal streaks, and a 7-day rolling average.
@@ -341,9 +354,9 @@ Options:
 - `--reset` - Reset configuration to defaults
 
 ```bash
-bun start config --human
-bun start config --set-data-dir /custom/path
-bun start config --reset
+bunx nomnomnumbers config --human
+bunx nomnomnumbers config --set-data-dir /custom/path
+bunx nomnomnumbers config --reset
 ```
 
 Returns:
@@ -368,7 +381,7 @@ Returns:
 Start the Model Context Protocol (MCP) server for NomNom Numbers (stdio transport). Connect AI agents directly to the tools provided by the CLI.
 
 ```bash
-bun start mcp
+bunx nomnomnumbers mcp
 ```
 
 ## Data Storage
@@ -393,12 +406,12 @@ The USDA food database (2M+ foods) is required for `search` and `lookup` command
 
 **Auto-download (recommended):**
 ```bash
-bun start search "chicken"  # Auto-downloads on first use
+bunx nomnomnumbers search "chicken"  # Auto-downloads on first use
 ```
 
 **Manual download:**
 ```bash
-bun start init --download-usda
+bunx nomnomnumbers init --download-usda
 ```
 
 **Advanced: Import from CSV**
@@ -421,10 +434,10 @@ This tool is designed to be called by AI agents. Key points:
 
 ```bash
 # Capture only stdout (JSON result); stderr goes to terminal/logs
-result=$(bun start search "chicken breast" --limit 3)
+result=$(bunx nomnomnumbers search "chicken breast" --limit 3)
 
 # Check exit code
-if bun start lookup "$BARCODE" > /tmp/result.json 2>/tmp/err.json; then
+if bunx nomnomnumbers lookup "$BARCODE" > /tmp/result.json 2>/tmp/err.json; then
   # Parse /tmp/result.json
 else
   # Parse /tmp/err.json for error message
