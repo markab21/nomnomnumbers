@@ -170,6 +170,55 @@ Returns:
 { "success": true, "id": "uuid", "foodName": "Eggs", "quantity": 2 }
 ```
 
+### delete \<id\>
+
+Delete a logged meal by its ID.
+
+```bash
+bun start delete "uuid"
+```
+
+Returns:
+```json
+{ "success": true, "id": "uuid", "foodName": "Eggs" }
+```
+
+### edit \<id\> [options]
+
+Edit a logged meal entry. Only provided flags are updated.
+
+Options:
+- `--food <name>` - Update food name
+- `--qty <n>` - Update quantity
+- `--unit <u>` - Update unit
+- `--type <t>` - Update meal type
+- `--calories <n>`, `--protein <n>`, `--carbs <n>`, `--fat <n>`
+- `--notes <text>`
+
+```bash
+bun start edit "uuid" --qty 3 --notes "Extra hungry"
+```
+
+Returns:
+```json
+{ "success": true, "id": "uuid", "foodName": "Eggs", "updated": ["quantity", "notes"] }
+```
+
+### foods [subcommand]
+
+Manage custom foods (items not in USDA database).
+
+Subcommands:
+- `add <name> [options]` - Add a custom food (supports macros, serving size, brand, barcode)
+- `list` - List all custom foods
+- `delete <id>` - Delete a custom food
+
+```bash
+bun start foods add "My Secret Recipe" --calories 400 --protein 30
+bun start foods list --human
+bun start foods delete "uuid"
+```
+
 ### today
 
 Show today's meals and totals.
@@ -247,6 +296,41 @@ Returns:
 }
 ```
 
+### goals [options]
+
+View or set daily nutrition goals.
+
+Options:
+- `--calories <n>`, `--protein <n>`, `--carbs <n>`, `--fat <n>` - Set targets
+- `--<macro>-direction <d>` - Goal direction: `under` or `over`
+- `--<macro>-tolerance <n>` - Tolerance percentage (0-100)
+- `--reset` - Clear all goals
+
+```bash
+bun start goals --calories 2000 --protein 150 --protein-direction over
+```
+
+Returns:
+```json
+{
+  "success": true,
+  "goalsSet": ["calories", "protein"]
+}
+```
+
+### progress [options]
+
+Show gamification progress vs goals, streaks, and weekly averages.
+
+Options:
+- `--date <n>` - Day offset (0=today, -1=yesterday)
+
+```bash
+bun start progress --human
+```
+
+Returns detailed JSON with today's progress, goal streaks, and a 7-day rolling average.
+
 ### config [options]
 
 View or modify configuration.
@@ -277,6 +361,14 @@ Returns:
     "configFile": "/home/user/.config/nomnom/config.json"
   }
 }
+```
+
+### mcp
+
+Start the Model Context Protocol (MCP) server for NomNom Numbers (stdio transport). Connect AI agents directly to the tools provided by the CLI.
+
+```bash
+bun start mcp
 ```
 
 ## Data Storage
