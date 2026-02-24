@@ -1,27 +1,21 @@
-# NomNom Numbers
+# 🍩 NomNom Numbers
 
-**Agentic nutrition tracking for weight loss.** NomNom is a CLI and MCP server that gives AI agents a reliable, deterministic way to track what you eat, monitor your macros, and help you hit your goals.
+> *"Even donuts deserve to be counted."*
 
-## Why NomNom?
+Tell your AI what you ate. It remembers, tracks, and coaches — powered by real data, not vibes.
 
-You want an AI assistant to help manage your nutrition. But AI agents hallucinate. They forget what you ate yesterday. They make up numbers.
-
-NomNom solves this by being the **source of truth**:
-- AI agents log meals → NomNom stores them in SQLite
-- AI agents query status → NomNom returns exact JSON
-- No ambiguity, no hallucination, no lost data
-
-**Real example workflow:**
+NomNom is a headless nutrition backend that plugs into Claude, OpenClaw, or any AI agent that can run a command. It searches 2M+ foods from the USDA, logs every meal to a local SQLite database, tracks your macros, builds streaks, and spots trends over time. Your AI handles the conversation. NomNom handles the truth.
 
 ```
-You (to Claude via MCP): "I just had two scrambled eggs and toast"
-Claude: Calls nomnom search "scrambled eggs" → finds 140 cal, 12g protein
-        Calls nomnom log "Scrambled Eggs" --qty 2 --calories 140 --protein 12
-        Returns: "Logged! You're at 850/2000 cal, 65/150g protein today"
+You:    "I just had two scrambled eggs and toast for breakfast"
 
-You: "How am I doing this week?"
-Claude: Calls nomnom trends --days 7
-        Returns: "Avg 1850 cal/day, hitting protein goals 5/7 days. On track!"
+Claude: searches "scrambled eggs" → 140 cal, 12g protein
+        logs "Scrambled Eggs" × 2 as breakfast
+        checks today's progress
+
+        "Logged! 🍩 You're at 850 / 2000 cal today with 65g protein.
+         You've got room for a solid lunch — maybe that chicken bowl
+         you liked on Thursday?"
 ```
 
 ## Installation
