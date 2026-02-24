@@ -421,11 +421,30 @@ bunx nomnomnumbers init --download-usda
 
 > **Note:** The first search after downloading builds an FTS5 index (one-time operation). A progress message is printed to stderr.
 
-## For AI Agents
+## Integrating with AI Agents (OpenClaw, Claude Desktop)
 
-This tool is designed to be called by AI agents. Key points:
+NomNom Numbers is designed specifically to be the memory and brains behind autonomous agent frameworks like **OpenClaw** or **Claude Desktop**. 
 
-- **stdout** contains clean JSON (parseable as-is)
+Because OpenClaw can autonomously run shell commands, interact with local files, and hook into messaging apps (WhatsApp, Telegram, etc.), NomNom Numbers provides the perfect deterministic backend for it to track your nutrition without hallucinating data.
+
+### OpenClaw Integration Guide
+
+Since OpenClaw executes shell commands natively, you do not need complex API integrations. Just instruct your OpenClaw agent to use `bunx nomnomnumbers`.
+
+1. **Install OpenClaw** and configure it to run on your local machine or a secure server.
+2. **Give OpenClaw its system prompt / instructions:**
+   Tell OpenClaw it has access to a nutrition CLI. Example prompt addition:
+   > *"You are my nutrition assistant. You must rigorously track my macros and calories using the `nomnomnumbers` CLI. To log a meal, run `bunx nomnomnumbers log <food> --calories <c> --protein <p>`. To check my daily remaining goals, run `bunx nomnomnumbers today`. Rely EXCLUSIVELY on the JSON output from this tool to answer my nutrition questions."*
+3. **Message OpenClaw:** *"I just ate a Big Mac, log it and tell me how my protein looks today."*
+4. **OpenClaw autonomously executes:**
+   - `bunx nomnomnumbers search "Big Mac" --limit 1`
+   - `bunx nomnomnumbers log "Big Mac" --calories 563 --protein 25`
+   - `bunx nomnomnumbers today`
+   - OpenClaw parses the JSON and replies to you via WhatsApp/Slack.
+
+### Key Features for Agents
+
+- **stdout** contains clean JSON (parseable as-is by the LLM)
 - **stderr** contains errors, progress, and status messages (never mixed into stdout)
 - **Exit code 0** means success; **exit code 1** means error
 - Errors on stderr are JSON: `{ "error": "message" }`
@@ -442,6 +461,22 @@ if bunx nomnomnumbers lookup "$BARCODE" > /tmp/result.json 2>/tmp/err.json; then
 else
   # Parse /tmp/err.json for error message
 fi
+```
+
+### Model Context Protocol (MCP)
+
+If you are using **Claude Desktop** or an MCP-compatible framework, NomNom Numbers includes a built-in MCP server.
+
+Add this to your `claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "nomnom": {
+      "command": "bunx",
+      "args": ["nomnomnumbers", "mcp"]
+    }
+  }
+}
 ```
 
 ## License
