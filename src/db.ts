@@ -8,7 +8,7 @@ const CONFIG_DIR = process.env.NOMNOM_CONFIG_DIR || getDefaultConfigDir();
 const DATA_DIR = process.env.NOMNOM_DATA_DIR || getDefaultDataDir();
 const CONFIG_FILE = join(CONFIG_DIR, "config.json");
 
-const USDA_RELEASE_URL = process.env.NOMNOM_USDA_URL || 
+const USDA_RELEASE_URL = process.env.NOMNOM_USDA_URL ||
   "https://github.com/markab21/nomnomnumbers/releases/download/usda/usda_fdc.sqlite.gz";
 
 interface Config {
@@ -73,7 +73,7 @@ export function loadConfig(): Config {
 export function saveConfig(config: Partial<Config>): void {
   const current = loadConfig();
   const updated = { ...current, ...config };
-  
+
   ensureDir(dirname(CONFIG_FILE));
   writeFileSync(CONFIG_FILE, JSON.stringify(updated, null, 2));
 }
@@ -131,67 +131,67 @@ export async function downloadUSDADatabase(
   const usdaDir = dirname(cfg.usdaDbPath);
   const tempPath = `${cfg.usdaDbPath}.downloading`;
   const gzPath = `${cfg.usdaDbPath}.gz`;
-  
+
   ensureDir(usdaDir);
-  
+
   try {
     onProgress?.({ status: "downloading", message: "Downloading USDA database...", percent: 0 });
-    
+
     const response = await fetch(USDA_RELEASE_URL);
     if (!response.ok) {
       throw new Error(`Download failed: ${response.status} ${response.statusText}`);
     }
-    
+
     const contentLength = response.headers.get("content-length");
     const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
-    
+
     const reader = response.body?.getReader();
     if (!reader) {
       throw new Error("Unable to read response body");
     }
-    
+
     const file = createWriteStream(gzPath);
     let downloadedBytes = 0;
-    
+
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      
+
       file.write(value);
       downloadedBytes += value.length;
-      
+
       if (totalBytes > 0) {
         const percent = Math.round((downloadedBytes / totalBytes) * 100);
-        onProgress?.({ 
-          status: "downloading", 
-          message: `Downloading USDA database...`, 
-          percent 
+        onProgress?.({
+          status: "downloading",
+          message: `Downloading USDA database...`,
+          percent
         });
       }
     }
-    
+
     file.end();
     await new Promise<void>((resolve) => file.on("finish", () => resolve()));
-    
+
     onProgress?.({ status: "extracting", message: "Extracting database..." });
-    
+
     const compressed = readFileSync(gzPath);
     const decompressed = gunzipSync(compressed);
     writeFileSync(tempPath, decompressed);
     rmSync(gzPath);
-    
+
     renameSync(tempPath, cfg.usdaDbPath);
-    
+
     onProgress?.({ status: "complete", message: "USDA database ready!" });
-    
+
     return { success: true, path: cfg.usdaDbPath };
   } catch (error) {
     if (existsSync(tempPath)) rmSync(tempPath);
     if (existsSync(gzPath)) rmSync(gzPath);
-    
+
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
     onProgress?.({ status: "error", message: errorMessage });
-    
+
     return { success: false, path: cfg.usdaDbPath, error: errorMessage };
   }
 }
@@ -202,19 +202,19 @@ export function usdaDbExists(): boolean {
 
 export function initializeDatabase(): InitResult {
   const cfg = getConfig();
-  
+
   ensureDir(cfg.dataDir);
   ensureDir(dirname(cfg.mealDbPath));
-  
+
   const mealDbExisted = existsSync(cfg.mealDbPath);
   const usdaExists = existsSync(cfg.usdaDbPath);
-  
+
   if (!db) {
     db = new Database(cfg.mealDbPath);
     db.exec("PRAGMA journal_mode = WAL");
     initTables(db);
   }
-  
+
   return {
     initialized: true,
     dataDir: cfg.dataDir,
@@ -767,7 +767,7 @@ export function getMealsByDate(date: string): MealResult[] {
   }));
 }
 
-export function getMealHistory(limit: number = 20): MealResult[] {
+export function getMealHistory(limit: number = 20, offset: number = 0): MealResult[] {
   const db = getDb();
   const stmt = db.query(`
     SELECT id, food_name, quantity, unit, meal_type, logged_at, notes,
@@ -775,9 +775,10 @@ export function getMealHistory(limit: number = 20): MealResult[] {
     FROM meals
     ORDER BY logged_at DESC
     LIMIT ?
+    OFFSET ?
   `);
 
-  const rows = stmt.all(limit) as Array<{
+  const rows = stmt.all(limit, offset) as Array<{
     id: string;
     food_name: string;
     quantity: number;

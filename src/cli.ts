@@ -232,6 +232,7 @@ Commands:
     
   history [options]           Show meal history
     --limit <n>               Max results (default: 20)
+    --offset <n>              Skip first N results (default: 0)
     
   goals [options]              View or set daily nutrition goals
     --calories <n>             Daily calorie target
@@ -476,12 +477,12 @@ To change settings:
           allResults.length === 0
             ? `No results for "${query}"`
             : allResults
-                .map(
-                  (f, i) =>
-                    `${i + 1}. [${f.source}] ${f.description}${f.brand ? ` (${f.brand})` : ""}\n` +
-                    `   ${f.calories ?? "?"} cal | ${f.protein ?? "?"}p ${f.carbs ?? "?"}c ${f.fat ?? "?"}f`
-                )
-                .join("\n\n")
+              .map(
+                (f, i) =>
+                  `${i + 1}. [${f.source}] ${f.description}${f.brand ? ` (${f.brand})` : ""}\n` +
+                  `   ${f.calories ?? "?"} cal | ${f.protein ?? "?"}p ${f.carbs ?? "?"}c ${f.fat ?? "?"}f`
+              )
+              .join("\n\n")
         );
         break;
       }
@@ -496,7 +497,7 @@ To change settings:
           printResult(
             { found: true, ...formatCustomFood(customFood) },
             `[custom] ${customFood.description}${customFood.brand ? ` (${customFood.brand})` : ""}\n` +
-              `${customFood.calories ?? "?"} cal | ${customFood.protein ?? "?"}p ${customFood.carbs ?? "?"}c ${customFood.fat ?? "?"}f`
+            `${customFood.calories ?? "?"} cal | ${customFood.protein ?? "?"}p ${customFood.carbs ?? "?"}c ${customFood.fat ?? "?"}f`
           );
           break;
         }
@@ -513,7 +514,7 @@ To change settings:
           printResult(
             { found: true, ...formatFood(food) },
             `${food.description}${food.brand ? ` (${food.brand})` : ""}\n` +
-              `${food.calories ?? "?"} cal | ${food.protein ?? "?"}p ${food.carbs ?? "?"}c ${food.fat ?? "?"}f`
+            `${food.calories ?? "?"} cal | ${food.protein ?? "?"}p ${food.carbs ?? "?"}c ${food.fat ?? "?"}f`
           );
         }
         break;
@@ -628,34 +629,35 @@ To change settings:
         printResult(
           { date: today, totals, meals: meals.map(formatMeal) },
           `Today's Summary (${today})\n` +
-            `${totals.mealCount} meals | ${totals.calories} cal | ${totals.protein}p ${totals.carbs}c ${totals.fat}f\n\n` +
-            (meals.length === 0
-              ? "No meals logged"
-              : meals
-                  .map(
-                    (m) =>
-                      `- ${m.foodName} (${m.quantity} ${m.unit}) [${m.mealType}]\n` +
-                        `  ${m.calories ?? "?"} cal | ${m.protein ?? "?"}p ${m.carbs ?? "?"}c ${m.fat ?? "?"}f${m.notes ? ` | ${m.notes}` : ""} | ${m.loggedAt}`
-                  )
-                  .join("\n"))
+          `${totals.mealCount} meals | ${totals.calories} cal | ${totals.protein}p ${totals.carbs}c ${totals.fat}f\n\n` +
+          (meals.length === 0
+            ? "No meals logged"
+            : meals
+              .map(
+                (m) =>
+                  `- ${m.foodName} (${m.quantity} ${m.unit}) [${m.mealType}]\n` +
+                  `  ${m.calories ?? "?"} cal | ${m.protein ?? "?"}p ${m.carbs ?? "?"}c ${m.fat ?? "?"}f${m.notes ? ` | ${m.notes}` : ""} | ${m.loggedAt}`
+              )
+              .join("\n"))
         );
         break;
       }
 
       case "history": {
         const limit = parsePositiveInt(flags.limit, 20, 500);
-        const meals = getMealHistory(limit);
+        const offset = parsePositiveInt(flags.offset, 0, 10000);
+        const meals = getMealHistory(limit, offset);
         printResult(
-          { count: meals.length, meals: meals.map(formatMeal) },
+          { count: meals.length, offset, meals: meals.map(formatMeal) },
           meals.length === 0
             ? "No meals in history"
             : meals
-                .map(
-                  (m) =>
-                    `${m.loggedAt} - ${m.foodName} (${m.quantity} ${m.unit})\n` +
-                      `  ${m.calories ?? "?"} cal | ${m.protein ?? "?"}p ${m.carbs ?? "?"}c ${m.fat ?? "?"}f`
-                )
-                .join("\n\n")
+              .map(
+                (m) =>
+                  `${m.loggedAt} - ${m.foodName} (${m.quantity} ${m.unit})\n` +
+                  `  ${m.calories ?? "?"} cal | ${m.protein ?? "?"}p ${m.carbs ?? "?"}c ${m.fat ?? "?"}f`
+              )
+              .join("\n\n")
         );
         break;
       }
@@ -871,12 +873,12 @@ To change settings:
 
         const weeklyAvg = daysTracked > 0
           ? {
-              calories: Math.round((weekCal / daysTracked) * 10) / 10,
-              protein: Math.round((weekPro / daysTracked) * 10) / 10,
-              carbs: Math.round((weekCarb / daysTracked) * 10) / 10,
-              fat: Math.round((weekFat / daysTracked) * 10) / 10,
-              daysTracked,
-            }
+            calories: Math.round((weekCal / daysTracked) * 10) / 10,
+            protein: Math.round((weekPro / daysTracked) * 10) / 10,
+            carbs: Math.round((weekCarb / daysTracked) * 10) / 10,
+            fat: Math.round((weekFat / daysTracked) * 10) / 10,
+            daysTracked,
+          }
           : { calories: 0, protein: 0, carbs: 0, fat: 0, daysTracked: 0 };
 
         // Build JSON result
@@ -929,18 +931,20 @@ To change settings:
         if (!subcommand || subcommand === "list") {
           const foods = listCustomFoods();
           printResult(
-            { count: foods.length, foods: foods.map(f => ({
-              id: f.id, name: f.description, brand: f.brand, barcode: f.barcode,
-              servingSize: f.servingSize, calories: f.calories, protein: f.protein,
-              carbs: f.carbs, fat: f.fat, fiber: f.fiber, sugar: f.sugar,
-              sodium: f.sodium, createdAt: f.createdAt,
-            })) },
+            {
+              count: foods.length, foods: foods.map(f => ({
+                id: f.id, name: f.description, brand: f.brand, barcode: f.barcode,
+                servingSize: f.servingSize, calories: f.calories, protein: f.protein,
+                carbs: f.carbs, fat: f.fat, fiber: f.fiber, sugar: f.sugar,
+                sodium: f.sodium, createdAt: f.createdAt,
+              }))
+            },
             foods.length === 0
               ? "No custom foods"
               : foods.map((f, i) =>
-                  `${i + 1}. ${f.description}${f.brand ? ` (${f.brand})` : ""}` +
-                  `\n   ${f.calories ?? "?"} cal | ${f.protein ?? "?"}p ${f.carbs ?? "?"}c ${f.fat ?? "?"}f`
-                ).join("\n\n")
+                `${i + 1}. ${f.description}${f.brand ? ` (${f.brand})` : ""}` +
+                `\n   ${f.calories ?? "?"} cal | ${f.protein ?? "?"}p ${f.carbs ?? "?"}c ${f.fat ?? "?"}f`
+              ).join("\n\n")
           );
           break;
         }
