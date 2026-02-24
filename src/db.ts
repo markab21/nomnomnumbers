@@ -953,3 +953,71 @@ export function getAllDailyTotals(): DailyTotal[] {
     mealCount: r.meal_count,
   }));
 }
+
+// ---- Trends ----
+
+export interface TrendData {
+  days: number;
+  period: { from: string; to: string };
+  averages: { calories: number; protein: number; carbs: number; fat: number };
+  daily: Array<{
+    date: string;
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+    mealCount: number;
+  }>;
+}
+
+export function getTrendData(days: number): TrendData {
+  const db = getDb();
+  const to = new Date();
+  const from = new Date();
+  from.setDate(from.getDate() - days + 1);
+
+  const toStr = `${to.getFullYear()}-${String(to.getMonth() + 1).padStart(2, "0")}-${String(to.getDate()).padStart(2, "0")}`;
+  const fromStr = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, "0")}-${String(from.getDate()).padStart(2, "0")}`;
+
+  const rows = db.query(`
+    SELECT
+      date(logged_at) as date,
+      COALESCE(SUM(calories), 0) as calories,
+      COALESCE(SUM(protein), 0) as protein,
+      COALESCE(SUM(carbs), 0) as carbs,
+      COALESCE(SUM(fat), 0) as fat,
+      COUNT(*) as meal_count
+    FROM meals
+    WHERE date(logged_at) >= date(?) AND date(logged_at) <= date(?)
+    GROUP BY date(logged_at)
+    ORDER BY date ASC
+  `).all(fromStr, toStr) as Array<{
+    date: string;
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+    meal_count: number;
+  }>;
+
+  const daily = rows.map(r => ({
+    date: r.date,
+    calories: Math.round(r.calories * 10) / 10,
+    protein: Math.round(r.protein * 10) / 10,
+    carbs: Math.round(r.carbs * 10) / 10,
+    fat: Math.round(r.fat * 10) / 10,
+    mealCount: r.meal_count,
+  }));
+
+  const daysWithData = daily.length;
+  const averages = daysWithData > 0
+    ? {
+      calories: Math.round(daily.reduce((s, d) => s + d.calories, 0) / daysWithData * 10) / 10,
+      protein: Math.round(daily.reduce((s, d) => s + d.protein, 0) / daysWithData * 10) / 10,
+      carbs: Math.round(daily.reduce((s, d) => s + d.carbs, 0) / daysWithData * 10) / 10,
+      fat: Math.round(daily.reduce((s, d) => s + d.fat, 0) / daysWithData * 10) / 10,
+    }
+    : { calories: 0, protein: 0, carbs: 0, fat: 0 };
+
+  return { days, period: { from: fromStr, to: toStr }, averages, daily };
+}

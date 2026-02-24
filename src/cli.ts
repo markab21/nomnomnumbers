@@ -32,6 +32,7 @@ import {
   type CustomFood,
   type MealResult,
   getAllDailyTotals,
+  getTrendData,
   type Goal,
   type DailyTotal,
 } from "./db";
@@ -233,6 +234,9 @@ Commands:
   history [options]           Show meal history
     --limit <n>               Max results (default: 20)
     --offset <n>              Skip first N results (default: 0)
+    
+  trends [options]            Show nutrition trends over time
+    --days <n>                Number of days to analyze (default: 7, max: 90)
     
   goals [options]              View or set daily nutrition goals
     --calories <n>             Daily calorie target
@@ -989,6 +993,27 @@ To change settings:
         }
 
         printError(`Unknown foods subcommand "${subcommand}". Use: add, list, delete`);
+        break;
+      }
+
+      case "trends": {
+        const days = parsePositiveInt(flags.days, 7, 90);
+        const data = getTrendData(days);
+
+        const humanLines = [
+          `Nutrition Trends (${data.period.from} to ${data.period.to})\n`,
+          `Averages (${data.daily.length} days with data):`,
+          `  Calories: ${data.averages.calories}`,
+          `  Protein:  ${data.averages.protein}g`,
+          `  Carbs:    ${data.averages.carbs}g`,
+          `  Fat:      ${data.averages.fat}g`,
+          `\nDaily Breakdown:`,
+          ...data.daily.map(
+            d => `  ${d.date}: ${d.calories} cal | ${d.protein}p ${d.carbs}c ${d.fat}f (${d.mealCount} meals)`
+          ),
+        ];
+
+        printResult(data, humanLines.join("\n"));
         break;
       }
 
