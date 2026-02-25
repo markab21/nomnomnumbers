@@ -959,7 +959,7 @@ export function getAllDailyTotals(): DailyTotal[] {
 export interface TrendData {
   days: number;
   period: { from: string; to: string };
-  averages: { calories: number; protein: number; carbs: number; fat: number };
+  averages: { calories: number; protein: number; carbs: number; fat: number; daysWithData: number };
   daily: Array<{
     date: string;
     calories: number;
@@ -1016,8 +1016,9 @@ export function getTrendData(days: number): TrendData {
       protein: Math.round(daily.reduce((s, d) => s + d.protein, 0) / daysWithData * 10) / 10,
       carbs: Math.round(daily.reduce((s, d) => s + d.carbs, 0) / daysWithData * 10) / 10,
       fat: Math.round(daily.reduce((s, d) => s + d.fat, 0) / daysWithData * 10) / 10,
+      daysWithData,
     }
-    : { calories: 0, protein: 0, carbs: 0, fat: 0 };
+    : { calories: 0, protein: 0, carbs: 0, fat: 0, daysWithData: 0 };
 
   return { days, period: { from: fromStr, to: toStr }, averages, daily };
 }

@@ -102,6 +102,13 @@ function parsePositiveInt(value: string | undefined, defaultValue: number, max: 
   return Math.min(n, max);
 }
 
+function parseNonNegativeInt(value: string | undefined, defaultValue: number, max: number = 10000): number {
+  if (value === undefined) return defaultValue;
+  const n = parseInt(value, 10);
+  if (isNaN(n) || n < 0) return defaultValue;
+  return Math.min(n, max);
+}
+
 function parseOptionalFloat(value: string | undefined): number | undefined {
   if (value === undefined) return undefined;
   const n = parseFloat(value);
@@ -640,8 +647,8 @@ To change settings:
           remainingObj = {};
           for (const g of goals) {
             goalsObj[g.key] = g.target;
-            const actual = totals[g.key as keyof typeof totals] as number;
-            remainingObj[g.key] = Math.max(0, Math.round((g.target - actual) * 10) / 10);
+            const actual = (totals as Record<string, number>)[g.key] ?? 0;
+            remainingObj[g.key] = Math.round((g.target - actual) * 10) / 10;
           }
         }
 
@@ -676,7 +683,7 @@ To change settings:
 
       case "history": {
         const limit = parsePositiveInt(flags.limit, 20, 500);
-        const offset = parsePositiveInt(flags.offset, 0, 10000);
+        const offset = parseNonNegativeInt(flags.offset, 0);
         const meals = getMealHistory(limit, offset);
         printResult(
           { count: meals.length, offset, meals: meals.map(formatMeal) },

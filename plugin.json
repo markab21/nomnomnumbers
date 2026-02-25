@@ -1,6 +1,6 @@
 {
     "name": "nomnomnumbers",
-    "version": "2.2.0",
+    "version": "2.3.0",
     "description": "CLI-based nutrition tracking for AI agents. Search USDA foods, log meals, track macros, and monitor goals with deterministic JSON output.",
     "mcpServers": {
         "nomnom": {
