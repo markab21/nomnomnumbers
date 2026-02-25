@@ -626,10 +626,14 @@ export function logMeal(input: {
   const db = getDb();
   const id = crypto.randomUUID();
 
+  // Use local datetime so date(logged_at) matches the user's local "today"
+  const now = new Date();
+  const localDatetime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
+
   const stmt = db.query(`
-    INSERT INTO meals (id, food_name, food_id, barcode, quantity, unit, meal_type, notes, 
-                       calories, protein, carbs, fat, fiber_g, sugar_g, sodium_mg)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO meals (id, food_name, food_id, barcode, quantity, unit, meal_type, notes,
+                       calories, protein, carbs, fat, fiber_g, sugar_g, sodium_mg, logged_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   stmt.run(
@@ -647,7 +651,8 @@ export function logMeal(input: {
     input.fat ?? null,
     input.fiber ?? null,
     input.sugar ?? null,
-    input.sodium ?? null
+    input.sodium ?? null,
+    localDatetime
   );
 
   return id;
