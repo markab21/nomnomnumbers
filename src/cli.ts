@@ -32,6 +32,7 @@ import {
   type CustomFood,
   type MealResult,
   getAllDailyTotals,
+  getTrendData,
   type Goal,
   type DailyTotal,
 } from "./db";
@@ -98,6 +99,13 @@ function parsePositiveInt(value: string | undefined, defaultValue: number, max: 
   if (value === undefined) return defaultValue;
   const n = parseInt(value, 10);
   if (isNaN(n) || n < 1) return defaultValue;
+  return Math.min(n, max);
+}
+
+function parseNonNegativeInt(value: string | undefined, defaultValue: number, max: number = 10000): number {
+  if (value === undefined) return defaultValue;
+  const n = parseInt(value, 10);
+  if (isNaN(n) || n < 0) return defaultValue;
   return Math.min(n, max);
 }
 
@@ -232,6 +240,10 @@ Commands:
     
   history [options]           Show meal history
     --limit <n>               Max results (default: 20)
+    --offset <n>              Skip first N results (default: 0)
+    
+  trends [options]            Show nutrition trends over time
+    --days <n>                Number of days to analyze (default: 7, max: 90)
     
   goals [options]              View or set daily nutrition goals
     --calories <n>             Daily calorie target
@@ -476,12 +488,12 @@ To change settings:
           allResults.length === 0
             ? `No results for "${query}"`
             : allResults
-                .map(
-                  (f, i) =>
-                    `${i + 1}. [${f.source}] ${f.description}${f.brand ? ` (${f.brand})` : ""}\n` +
-                    `   ${f.calories ?? "?"} cal | ${f.protein ?? "?"}p ${f.carbs ?? "?"}c ${f.fat ?? "?"}f`
-                )
-                .join("\n\n")
+              .map(
+                (f, i) =>
+                  `${i + 1}. [${f.source}] ${f.description}${f.brand ? ` (${f.brand})` : ""}\n` +
+                  `   ${f.calories ?? "?"} cal | ${f.protein ?? "?"}p ${f.carbs ?? "?"}c ${f.fat ?? "?"}f`
+              )
+              .join("\n\n")
         );
         break;
       }
@@ -496,7 +508,7 @@ To change settings:
           printResult(
             { found: true, ...formatCustomFood(customFood) },
             `[custom] ${customFood.description}${customFood.brand ? ` (${customFood.brand})` : ""}\n` +
-              `${customFood.calories ?? "?"} cal | ${customFood.protein ?? "?"}p ${customFood.carbs ?? "?"}c ${customFood.fat ?? "?"}f`
+            `${customFood.calories ?? "?"} cal | ${customFood.protein ?? "?"}p ${customFood.carbs ?? "?"}c ${customFood.fat ?? "?"}f`
           );
           break;
         }
@@ -513,7 +525,7 @@ To change settings:
           printResult(
             { found: true, ...formatFood(food) },
             `${food.description}${food.brand ? ` (${food.brand})` : ""}\n` +
-              `${food.calories ?? "?"} cal | ${food.protein ?? "?"}p ${food.carbs ?? "?"}c ${food.fat ?? "?"}f`
+            `${food.calories ?? "?"} cal | ${food.protein ?? "?"}p ${food.carbs ?? "?"}c ${food.fat ?? "?"}f`
           );
         }
         break;
@@ -625,37 +637,65 @@ To change settings:
         const meals = getMealsByDate(today);
         const totals = getDailyTotals(today);
 
+        // Include goals/remaining if goals are set
+        const goals = getGoals();
+        let goalsObj: Record<string, number> | null = null;
+        let remainingObj: Record<string, number> | null = null;
+
+        if (goals.length > 0) {
+          goalsObj = {};
+          remainingObj = {};
+          for (const g of goals) {
+            goalsObj[g.key] = g.target;
+            const actual = (totals as Record<string, number>)[g.key] ?? 0;
+            remainingObj[g.key] = Math.round((g.target - actual) * 10) / 10;
+          }
+        }
+
+        const result: Record<string, unknown> = {
+          date: today,
+          totals,
+          meals: meals.map(formatMeal),
+        };
+        if (goalsObj) result.goals = goalsObj;
+        if (remainingObj) result.remaining = remainingObj;
+
         printResult(
-          { date: today, totals, meals: meals.map(formatMeal) },
+          result,
           `Today's Summary (${today})\n` +
-            `${totals.mealCount} meals | ${totals.calories} cal | ${totals.protein}p ${totals.carbs}c ${totals.fat}f\n\n` +
-            (meals.length === 0
-              ? "No meals logged"
-              : meals
-                  .map(
-                    (m) =>
-                      `- ${m.foodName} (${m.quantity} ${m.unit}) [${m.mealType}]\n` +
-                        `  ${m.calories ?? "?"} cal | ${m.protein ?? "?"}p ${m.carbs ?? "?"}c ${m.fat ?? "?"}f${m.notes ? ` | ${m.notes}` : ""} | ${m.loggedAt}`
-                  )
-                  .join("\n"))
+          `${totals.mealCount} meals | ${totals.calories} cal | ${totals.protein}p ${totals.carbs}c ${totals.fat}f\n` +
+          (goalsObj && remainingObj
+            ? `\nRemaining: ${Object.entries(remainingObj).map(([k, v]) => `${k}: ${v}`).join(" | ")}\n`
+            : "") +
+          `\n` +
+          (meals.length === 0
+            ? "No meals logged"
+            : meals
+              .map(
+                (m) =>
+                  `- ${m.foodName} (${m.quantity} ${m.unit}) [${m.mealType}]\n` +
+                  `  ${m.calories ?? "?"} cal | ${m.protein ?? "?"}p ${m.carbs ?? "?"}c ${m.fat ?? "?"}f${m.notes ? ` | ${m.notes}` : ""} | ${m.loggedAt}`
+              )
+              .join("\n"))
         );
         break;
       }
 
       case "history": {
         const limit = parsePositiveInt(flags.limit, 20, 500);
-        const meals = getMealHistory(limit);
+        const offset = parseNonNegativeInt(flags.offset, 0);
+        const meals = getMealHistory(limit, offset);
         printResult(
-          { count: meals.length, meals: meals.map(formatMeal) },
+          { count: meals.length, offset, meals: meals.map(formatMeal) },
           meals.length === 0
             ? "No meals in history"
             : meals
-                .map(
-                  (m) =>
-                    `${m.loggedAt} - ${m.foodName} (${m.quantity} ${m.unit})\n` +
-                      `  ${m.calories ?? "?"} cal | ${m.protein ?? "?"}p ${m.carbs ?? "?"}c ${m.fat ?? "?"}f`
-                )
-                .join("\n\n")
+              .map(
+                (m) =>
+                  `${m.loggedAt} - ${m.foodName} (${m.quantity} ${m.unit})\n` +
+                  `  ${m.calories ?? "?"} cal | ${m.protein ?? "?"}p ${m.carbs ?? "?"}c ${m.fat ?? "?"}f`
+              )
+              .join("\n\n")
         );
         break;
       }
@@ -871,12 +911,12 @@ To change settings:
 
         const weeklyAvg = daysTracked > 0
           ? {
-              calories: Math.round((weekCal / daysTracked) * 10) / 10,
-              protein: Math.round((weekPro / daysTracked) * 10) / 10,
-              carbs: Math.round((weekCarb / daysTracked) * 10) / 10,
-              fat: Math.round((weekFat / daysTracked) * 10) / 10,
-              daysTracked,
-            }
+            calories: Math.round((weekCal / daysTracked) * 10) / 10,
+            protein: Math.round((weekPro / daysTracked) * 10) / 10,
+            carbs: Math.round((weekCarb / daysTracked) * 10) / 10,
+            fat: Math.round((weekFat / daysTracked) * 10) / 10,
+            daysTracked,
+          }
           : { calories: 0, protein: 0, carbs: 0, fat: 0, daysTracked: 0 };
 
         // Build JSON result
@@ -929,18 +969,20 @@ To change settings:
         if (!subcommand || subcommand === "list") {
           const foods = listCustomFoods();
           printResult(
-            { count: foods.length, foods: foods.map(f => ({
-              id: f.id, name: f.description, brand: f.brand, barcode: f.barcode,
-              servingSize: f.servingSize, calories: f.calories, protein: f.protein,
-              carbs: f.carbs, fat: f.fat, fiber: f.fiber, sugar: f.sugar,
-              sodium: f.sodium, createdAt: f.createdAt,
-            })) },
+            {
+              count: foods.length, foods: foods.map(f => ({
+                id: f.id, name: f.description, brand: f.brand, barcode: f.barcode,
+                servingSize: f.servingSize, calories: f.calories, protein: f.protein,
+                carbs: f.carbs, fat: f.fat, fiber: f.fiber, sugar: f.sugar,
+                sodium: f.sodium, createdAt: f.createdAt,
+              }))
+            },
             foods.length === 0
               ? "No custom foods"
               : foods.map((f, i) =>
-                  `${i + 1}. ${f.description}${f.brand ? ` (${f.brand})` : ""}` +
-                  `\n   ${f.calories ?? "?"} cal | ${f.protein ?? "?"}p ${f.carbs ?? "?"}c ${f.fat ?? "?"}f`
-                ).join("\n\n")
+                `${i + 1}. ${f.description}${f.brand ? ` (${f.brand})` : ""}` +
+                `\n   ${f.calories ?? "?"} cal | ${f.protein ?? "?"}p ${f.carbs ?? "?"}c ${f.fat ?? "?"}f`
+              ).join("\n\n")
           );
           break;
         }
@@ -985,6 +1027,27 @@ To change settings:
         }
 
         printError(`Unknown foods subcommand "${subcommand}". Use: add, list, delete`);
+        break;
+      }
+
+      case "trends": {
+        const days = parsePositiveInt(flags.days, 7, 90);
+        const data = getTrendData(days);
+
+        const humanLines = [
+          `Nutrition Trends (${data.period.from} to ${data.period.to})\n`,
+          `Averages (${data.daily.length} days with data):`,
+          `  Calories: ${data.averages.calories}`,
+          `  Protein:  ${data.averages.protein}g`,
+          `  Carbs:    ${data.averages.carbs}g`,
+          `  Fat:      ${data.averages.fat}g`,
+          `\nDaily Breakdown:`,
+          ...data.daily.map(
+            d => `  ${d.date}: ${d.calories} cal | ${d.protein}p ${d.carbs}c ${d.fat}f (${d.mealCount} meals)`
+          ),
+        ];
+
+        printResult(data, humanLines.join("\n"));
         break;
       }
 

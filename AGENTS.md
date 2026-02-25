@@ -7,26 +7,26 @@ NomNom Numbers is a CLI-based nutrition tracking tool for AI agents. It provides
 ## CLI Commands
 
 ```bash
-bun start help                    # Show all commands
-bun start init                    # Initialize database (auto-runs on first use)
-bun start search "chicken breast" # Search foods (JSON output)
-bun start lookup 00000000924665   # Lookup by barcode
-bun start log "eggs" --calories 150 --protein 12  # Log a meal
-bun start delete <id>                             # Delete a logged meal
-bun start edit <id> --calories 200                 # Edit a logged meal
-bun start today                   # Today's summary
-bun start history --limit 10      # Meal history
-bun start config                  # View configuration
-bun start goals --calories 2000 --protein 120  # Set daily goals
-bun start progress                              # Progress vs goals
-bun start foods add "My Shake" --calories 400      # Add custom food
-bun start foods list                               # List custom foods
-bun start foods delete <id>                        # Delete custom food
+nomnom help                    # Show all commands
+nomnom init                    # Initialize database (auto-runs on first use)
+nomnom search "chicken breast" # Search foods (JSON output)
+nomnom lookup 00000000924665   # Lookup by barcode
+nomnom log "eggs" --calories 150 --protein 12  # Log a meal
+nomnom delete <id>                             # Delete a logged meal
+nomnom edit <id> --calories 200                 # Edit a logged meal
+nomnom today                   # Today's summary
+nomnom history --limit 10      # Meal history
+nomnom config                  # View configuration
+nomnom goals --calories 2000 --protein 120  # Set daily goals
+nomnom progress                              # Progress vs goals
+nomnom foods add "My Shake" --calories 400      # Add custom food
+nomnom foods list                               # List custom foods
+nomnom foods delete <id>                        # Delete custom food
 ```
 
 All commands output JSON to **stdout** by default. Add `--human` or `-h` after a command for readable format.
 
-> **Note:** `bun start -h` shows help and exits. Use `-h` after a command, e.g. `bun start today -h`.
+> **Note:** `nomnom -h` shows help and exits. Use `-h` after a command, e.g. `nomnom today -h`.
 
 ## MCP Server
 
@@ -400,7 +400,7 @@ Tolerance/zone semantics:
 
 ```bash
 bun install                        # Install dev dependencies (@types/bun)
-bun start                          # Run CLI
+nomnom                             # Run CLI (installed via bunx/npm)
 bun run dev                        # Run with watch mode
 bun run typecheck                  # Run tsc --noEmit
 bun run import:usda                # Import USDA data (requires ZIP download)
@@ -475,8 +475,8 @@ The USDA food database (2M+ foods) is required for `search` and `lookup` command
 
 **Auto-download (recommended):**
 ```bash
-bun start init --download-usda     # Explicit download
-bun start search "chicken"          # Auto-downloads on first search
+nomnom init --download-usda     # Explicit download
+nomnom search "chicken"          # Auto-downloads on first search
 ```
 
 **Manual import (advanced):**
@@ -494,50 +494,50 @@ Override download URL with `NOMNOM_USDA_URL` environment variable.
 
 ```bash
 # Test search (if USDA database exists)
-bun start search "big mac" --human
+nomnom search "big mac" --human
 
 # Test logging
-bun start log "Test Food" --calories 100 --human
+nomnom log "Test Food" --calories 100 --human
 
 # Test logging with zero values (should show 0, not ?)
-bun start log "Zero Test" --calories 0 --protein 0 --human
+nomnom log "Zero Test" --calories 0 --protein 0 --human
 
 # Test today's summary
-bun start today --human
+nomnom today --human
 
 # View configuration
-bun start config --human
+nomnom config --human
 
 # Test goals
-bun start goals --calories 2000 --protein 120 --human
+nomnom goals --calories 2000 --protein 120 --human
 
 # Test progress (requires goals + meal data)
-bun start progress --human
+nomnom progress --human
 
 # Run goals smoke test
 bun run smoke:goals
 
 # Test tolerance
-bun start goals --calories 2000 --calories-tolerance 10 --human
-bun start progress --human
+nomnom goals --calories 2000 --calories-tolerance 10 --human
+nomnom progress --human
 
 # Run tolerance smoke test
 bun run smoke:tolerance
 
 # Test custom foods
-bun start foods add "My Shake" --calories 400 --protein 30 --brand "Custom" --human
-bun start foods list --human
-bun start search "shake" --human   # Shows custom + USDA results with [source] tags
+nomnom foods add "My Shake" --calories 400 --protein 30 --brand "Custom" --human
+nomnom foods list --human
+nomnom search "shake" --human   # Shows custom + USDA results with [source] tags
 
 # Test delete
-bun start log "To Delete" --calories 100
+nomnom log "To Delete" --calories 100
 # Copy the id from output
-bun start delete <id>
+nomnom delete <id>
 
 # Test edit
-bun start log "To Edit" --calories 100 --protein 10
+nomnom log "To Edit" --calories 100 --protein 10
 # Copy the id from output
-bun start edit <id> --calories 200 --fat 15 --human
+nomnom edit <id> --calories 200 --fat 15 --human
 
 # Run CRUD smoke test
 bun run smoke:crud

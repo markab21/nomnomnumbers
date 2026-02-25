@@ -1,309 +1,183 @@
-# NomNom Numbers
+# 🍩 NomNom Numbers
 
-CLI-based nutrition tracking tool for AI agents. Search foods, log meals, and track macros - all outputting JSON for easy parsing.
+> *"Even donuts deserve to be counted."*
+
+Tell your AI what you ate. It remembers, tracks, and coaches — powered by real data, not vibes.
+
+NomNom is a headless nutrition backend that plugs into Claude, OpenClaw, or any AI agent that can run a command. It searches 2M+ foods from the USDA, logs every meal to a local SQLite database, tracks your macros, builds streaks, and spots trends over time. Your AI handles the conversation. NomNom handles the truth.
+
+```
+You:    "I just had two scrambled eggs and toast for breakfast"
+
+Claude: searches "scrambled eggs" → 140 cal, 12g protein
+        logs "Scrambled Eggs" × 2 as breakfast
+        checks today's progress
+
+        "Logged! 🍩 You're at 850 / 2000 cal today with 65g protein.
+         You've got room for a solid lunch — maybe that chicken bowl
+         you liked on Thursday?"
+```
 
 ## Installation
 
 ```bash
-bun install
+# Run directly (recommended for AI agents)
+bunx nomnomnumbers --help
+
+# Or install globally
+bun install -g nomnomnumbers
+nomnom --help
 ```
 
-## Quick Start
+## Core Commands
+
+### Search & Log Meals
 
 ```bash
-# Initialize (auto-runs on first command if needed)
-bun start init --human
+# Search 2M+ USDA foods
+nomnom search "chicken breast" --limit 5
 
-# Search for foods
-bun start search "chicken breast" --human
+# Log by name (AI can search then log)
+nomnom log "Chicken Breast" --qty 1 --calories 165 --protein 31
 
-# Log a meal
-bun start log "Grilled Chicken" --calories 165 --protein 31 --human
-
-# View today's summary
-bun start today --human
-
-# View configuration
-bun start config --human
+# Log by barcode
+nomnom lookup 00000000924665
+nomnom log "Quest Bar" --calories 200 --protein 21
 ```
 
-## CLI Commands
-
-All commands output JSON to **stdout** by default. Add `--human` or `-h` after a command for readable format.
-
-> **Note:** `bun start -h` shows help. Use `-h` after a command name, e.g. `bun start today -h`.
-
-### Output Format
-
-| Stream | Content |
-|--------|---------|
-| **stdout** | JSON result (or human-readable text with `--human`) |
-| **stderr** | Errors, progress messages, initialization notices |
-
-- **Exit code 0** — success; parse stdout as JSON
-- **Exit code 1** — error; stderr contains `{ "error": "message" }`
-
-Errors are always JSON on stderr, even in `--human` mode:
-```json
-{ "error": "Usage: nomnom search <query>" }
-```
-
-Flags support both `--flag value` and `--flag=value` syntax. Negative numeric values are accepted (e.g. `--calories -50`).
-
-### init
-
-Initialize the database. This runs automatically on first use.
+### Track Progress
 
 ```bash
-bun start init                  # Initialize meal database
-bun start init --download-usda  # Also download USDA food database
+# Today's summary
+nomnom today --human
+
+# Set goals
+nomnom goals --calories 2000 --protein 150
+
+# Progress vs goals (includes streaks!)
+nomnom progress --human
 ```
 
-Returns:
-```json
-{
-  "initialized": true,
-  "dataDir": "/home/user/.local/share/nomnom",
-  "usdaExists": true
-}
-```
-
-With `--download-usda`:
-```json
-{
-  "initialized": true,
-  "dataDir": "/home/user/.local/share/nomnom",
-  "usdaDownloaded": true
-}
-```
-
-`usdaError` (string) is included only when download fails.
-
-### search \<query\>
-
-Search USDA food database (2M+ foods). Auto-downloads database on first use.
+### History & Trends
 
 ```bash
-bun start search "big mac" --limit 5
-bun start search "quest bar" --human
+# Recent meals
+nomnom history --limit 10 --human
+
+# Weekly trends (AI uses this for insights)
+nomnom trends --days 7
 ```
 
-Options:
-- `--limit <n>` - Max results (default: 10, max: 100)
+## AI Integration
 
-Returns:
+### MCP (Claude Desktop, etc.)
+
+Add to `claude_desktop_config.json`:
+
 ```json
 {
-  "query": "big mac",
-  "count": 5,
-  "results": [
-    {
-      "fdcId": 123456,
-      "description": "Big Mac",
-      "brand": "McDonald's",
-      "barcode": "000000000000",
-      "servingSize": "200g",
-      "calories": 563,
-      "protein": 25,
-      "carbs": 46,
-      "fat": 33,
-      "fiber": 3,
-      "sugar": 9,
-      "sodium": 960
+  "mcpServers": {
+    "nomnom": {
+      "command": "bunx",
+      "args": ["nomnomnumbers", "mcp"]
     }
-  ]
-}
-```
-
-Fields `brand`, `barcode`, `servingSize`, `fiber`, `sugar`, `sodium` may be `null`.
-
-### lookup \<barcode\>
-
-Look up a food by barcode (UPC/EAN). Auto-downloads USDA database on first use.
-
-```bash
-bun start lookup 00000000924665
-```
-
-Returns (found):
-```json
-{
-  "found": true,
-  "fdcId": 123456,
-  "description": "Quest Bar",
-  "brand": "Quest Nutrition",
-  "barcode": "00000000924665",
-  "servingSize": "60g",
-  "calories": 200,
-  "protein": 21,
-  "carbs": 22,
-  "fat": 8,
-  "fiber": 14,
-  "sugar": 1,
-  "sodium": 300
-}
-```
-
-Returns (not found):
-```json
-{ "found": false, "barcode": "00000000924665" }
-```
-
-### log \<food\> [options]
-
-Log a meal entry.
-
-Options:
-- `--qty <n>` - Quantity; supports decimals (default: 1)
-- `--unit <u>` - Unit (default: serving)
-- `--type <t>` - Meal type: breakfast/lunch/dinner/snack (default: snack)
-- `--calories <n>`, `--protein <n>`, `--carbs <n>`, `--fat <n>`
-- `--notes <text>`
-
-```bash
-bun start log "Eggs" --qty 2 --calories 140 --protein 12 --type breakfast
-bun start log "Olive Oil" --qty 1.5 --unit tbsp --calories 180 --fat 21
-```
-
-Returns:
-```json
-{ "success": true, "id": "uuid", "foodName": "Eggs", "quantity": 2 }
-```
-
-### today
-
-Show today's meals and totals.
-
-```bash
-bun start today --human
-```
-
-Returns:
-```json
-{
-  "date": "2026-02-21",
-  "totals": { "calories": 500, "protein": 40, "carbs": 50, "fat": 20, "mealCount": 3 },
-  "meals": [
-    {
-      "id": "uuid",
-      "foodName": "Eggs",
-      "quantity": 2,
-      "unit": "serving",
-      "mealType": "breakfast",
-      "loggedAt": "2026-02-21 08:30:00",
-      "notes": null,
-      "calories": 140,
-      "protein": 12,
-      "carbs": 1,
-      "fat": 10
-    }
-  ]
-}
-```
-
-### history [options]
-
-Show meal history.
-
-Options:
-- `--limit <n>` - Max results (default: 20, max: 500)
-
-```bash
-bun start history --limit 10 --human
-```
-
-Returns the same meal object shape as `today`. Response: `{ "count": N, "meals": [...] }`
-
-### config [options]
-
-View or modify configuration.
-
-Options:
-- `--set-data-dir <path>` - Set data directory
-- `--set-usda-path <path>` - Set USDA database path
-- `--reset` - Reset configuration to defaults
-
-```bash
-bun start config --human
-bun start config --set-data-dir /custom/path
-bun start config --reset
-```
-
-Returns:
-```json
-{
-  "config": {
-    "dataDir": "/home/user/.local/share/nomnom",
-    "mealDbPath": "/home/user/.local/share/nomnom/nomnom.db",
-    "usdaDbPath": "/home/user/.local/share/nomnom/usda/usda_fdc.sqlite",
-    "usdaExists": true
-  },
-  "paths": {
-    "configDir": "/home/user/.config/nomnom",
-    "defaultDataDir": "/home/user/.local/share/nomnom",
-    "configFile": "/home/user/.config/nomnom/config.json"
   }
 }
 ```
 
+Then Claude can:
+- Log meals you mention in conversation
+- Track your progress over time
+- Give insights based on your actual data
+
+**Example Claude prompt:**
+> "Track my nutrition using the nomnom MCP tool. When I tell you what I ate, log it. When I ask how I'm doing, check my progress. Be proactive about keeping me on track."
+
+### CLI (Any AI Agent)
+
+AI agents that can run shell commands can use NomNom directly:
+
+```bash
+# All output is JSON for easy parsing
+result=$(nomnom today)
+
+# Exit code 0 = success, 1 = error
+# stdout = JSON result
+# stderr = errors/progress (never mixed)
+```
+
+## Output Format
+
+| Stream | Content |
+|--------|---------|
+| stdout | JSON result (add `--human` for readable) |
+| stderr | Errors, progress, initialization |
+| Exit 0 | Success |
+| Exit 1 | Error (stderr has `{ "error": "..." }`) |
+
+## All Commands
+
+| Command | Description |
+|---------|-------------|
+| `init` | Initialize database (auto-runs) |
+| `search <query>` | Search USDA foods |
+| `lookup <barcode>` | Look up by barcode |
+| `log <food> [options]` | Log a meal |
+| `delete <id>` | Delete a meal |
+| `edit <id> [options]` | Edit a meal |
+| `today` | Today's summary |
+| `history` | Meal history |
+| `trends` | Nutrition trends |
+| `goals` | Set/view goals |
+| `progress` | Progress vs goals |
+| `foods add/list/delete` | Manage custom foods |
+| `config` | View/modify config |
+| `mcp` | Start MCP server |
+
+Run `nomnom help` for full details.
+
 ## Data Storage
 
-### Default Paths
+| Platform | Data |
+|----------|------|
+| Linux/Mac | `~/.local/share/nomnom/` |
+| Windows | `%LOCALAPPDATA%\nomnom\` |
 
-| Platform | Data | Config |
-|----------|------|--------|
-| Linux/Mac | `~/.local/share/nomnom/` | `~/.config/nomnom/` |
-| Windows | `%LOCALAPPDATA%\nomnom\` | `%APPDATA%\nomnom\` |
+Override with `NOMNOM_DATA_DIR` environment variable.
 
-### Environment Variables
+## Example: Agentic Weight Loss Workflow
 
-Override default paths:
-- `NOMNOM_DATA_DIR` - Data directory
-- `NOMNOM_CONFIG_DIR` - Config directory
-- `NOMNOM_USDA_URL` - Custom USDA database download URL
-
-## USDA Database
-
-The USDA food database (2M+ foods) is required for `search` and `lookup` commands. It is downloaded as a compressed `.sqlite.gz` from GitHub Releases.
-
-**Auto-download (recommended):**
-```bash
-bun start search "chicken"  # Auto-downloads on first use
+**Day 1 - Setup:**
+```
+You: "I want to lose weight. My goal is 1800 calories, 140g protein."
+Claude: nomnom goals --calories 1800 --protein 140
+        "Goals set! I'll track your meals and keep you accountable."
 ```
 
-**Manual download:**
-```bash
-bun start init --download-usda
+**Day 5 - Tracking:**
+```
+You: "Had a turkey sandwich for lunch"
+Claude: nomnom search "turkey sandwich"
+        nomnom log "Turkey Sandwich" --calories 350 --protein 25
+        "Logged! You're at 1200/1800 cal, 95/140g protein. 600 cal to go!"
 ```
 
-**Advanced: Import from CSV**
-1. Download CSV zip from https://fdc.nal.usda.gov/download-datasets/
-2. Save to `~/.local/share/nomnom/usda/FoodData_Central_csv_<date>.zip`
-3. Run `bun run import:usda`
+**Day 12 - Check-in:**
+```
+You: "How am I doing?"
+Claude: nomnom trends --days 7
+        nomnom progress
+        "Great week! Avg 1750 cal/day, hitting protein 6/7 days. 
+         7-day streak on calories! Keep it up."
+```
 
-> **Note:** The first search after downloading builds an FTS5 index (one-time operation). A progress message is printed to stderr.
-
-## For AI Agents
-
-This tool is designed to be called by AI agents. Key points:
-
-- **stdout** contains clean JSON (parseable as-is)
-- **stderr** contains errors, progress, and status messages (never mixed into stdout)
-- **Exit code 0** means success; **exit code 1** means error
-- Errors on stderr are JSON: `{ "error": "message" }`
-- Invalid numeric flags (NaN) are silently ignored; invalid `--limit` values use the default
-- Invalid `--type` values produce a JSON error
-
-```bash
-# Capture only stdout (JSON result); stderr goes to terminal/logs
-result=$(bun start search "chicken breast" --limit 3)
-
-# Check exit code
-if bun start lookup "$BARCODE" > /tmp/result.json 2>/tmp/err.json; then
-  # Parse /tmp/result.json
-else
-  # Parse /tmp/err.json for error message
-fi
+**Day 30 - Insights:**
+```
+You: "What patterns do you see?"
+Claude: [Analyzes 30 days of data via nomnom history/trends]
+        "You hit protein goals 85% of days you ate breakfast.
+         On days you missed breakfast, avg calories were 2100 (over goal).
+         Recommendation: Don't skip breakfast."
 ```
 
 ## License
