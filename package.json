@@ -1,14 +1,14 @@
 {
   "name": "nomnomnumbers",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "description": "Nutrition tracking CLI for AI agents — food search, barcode lookup, meal logging with JSON output",
   "module": "src/cli.ts",
   "type": "module",
   "bin": {
-    "nomnom": "./src/cli.ts",
-    "nomnom-mcp": "./src/mcp.ts"
+    "nomnom": "./bin/nomnom",
+    "nomnom-mcp": "./bin/nomnom-mcp"
   },
-  "files": ["src/", "README.md", "plugin.json"],
+  "files": ["bin/", "src/", "README.md", "plugin.json"],
   "scripts": {
     "start": "bun run src/cli.ts",
     "dev": "bun --watch run src/cli.ts",
