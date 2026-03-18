@@ -1,0 +1,7 @@
+#!/usr/bin/env bun
+import { executeCommand } from "../src/cli.ts";
+
+const result = await executeCommand(process.argv.slice(2));
+if (result.stderr) process.stderr.write(result.stderr);
+if (result.stdout) process.stdout.write(result.stdout);
+process.exit(result.exitCode);
