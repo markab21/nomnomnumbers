@@ -25,5 +25,18 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
-  }
+  },
+  "include": ["src/**/*.ts", "scripts/**/*.ts"],
+  "exclude": [
+    "node_modules",
+    "tmp",
+    "cwd",
+    "workspace",
+    ".agents",
+    ".claude",
+    "data",
+    "docs",
+    "skills",
+    "navi"
+  ]
 }

@@ -65,10 +65,10 @@ const noGoalsJson = JSON.parse(noGoals.stdout);
 check("No goals initially", noGoalsJson.goals === null);
 
 // ---- goals: set ----
-const setResult = run("goals", "--calories", "2000", "--protein", "100", "--carbs", "250", "--fat", "70");
+const setResult = run("goals", "--calories", "2000", "--protein", "100", "--carbs", "250", "--fat", "70", "--netCarbs", "250");
 const setJson = JSON.parse(setResult.stdout);
 check("Set goals success", setJson.success === true);
-check("Set 4 goals", setJson.goalsSet?.length === 4);
+check("Set 5 goals", setJson.goalsSet?.length === 5);
 
 // ---- goals: view ----
 const viewResult = run("goals");
@@ -78,6 +78,8 @@ check("Calories target 2000", viewJson.goals?.calories?.target === 2000);
 check("Protein target 100", viewJson.goals?.protein?.target === 100);
 check("Protein direction over", viewJson.goals?.protein?.direction === "over");
 check("Calories direction under", viewJson.goals?.calories?.direction === "under");
+check("Net carbs target 250", viewJson.goals?.netCarbs?.target === 250);
+check("Net carbs direction under", viewJson.goals?.netCarbs?.direction === "under");
 
 // ---- progress: today ----
 console.log("\n--- Progress (today) ---");
@@ -92,7 +94,7 @@ check("Has streaks object", p.streaks !== null && typeof p.streaks === "object")
 check("Has weeklyAvg object", p.weeklyAvg !== null && typeof p.weeklyAvg === "object");
 
 // Today macro fields
-for (const macro of ["calories", "protein", "carbs", "fat"]) {
+for (const macro of ["calories", "protein", "carbs", "fat", "netCarbs"]) {
   const m = p.today[macro];
   check(`today.${macro}.actual is number`, typeof m?.actual === "number");
   check(`today.${macro}.goal is number`, typeof m?.goal === "number");
@@ -102,7 +104,7 @@ for (const macro of ["calories", "protein", "carbs", "fat"]) {
 check("today.mealCount is 4", p.today.mealCount === 4);
 
 // Streaks
-for (const macro of ["calories", "protein", "carbs", "fat"]) {
+for (const macro of ["calories", "protein", "carbs", "fat", "netCarbs"]) {
   const s = p.streaks[macro];
   check(`streaks.${macro}.current >= 0`, s?.current >= 0);
   check(`streaks.${macro}.best >= current`, s?.best >= s?.current);
@@ -113,6 +115,7 @@ check("streaks.allGoals.best >= current", p.streaks.allGoals?.best >= p.streaks.
 
 // Weekly avg
 check("weeklyAvg.calories > 0", p.weeklyAvg.calories > 0);
+check("weeklyAvg.netCarbs > 0", p.weeklyAvg.netCarbs > 0);
 check("weeklyAvg.daysTracked > 0", p.weeklyAvg.daysTracked > 0);
 check("weeklyAvg.daysTracked <= 7", p.weeklyAvg.daysTracked <= 7);
 

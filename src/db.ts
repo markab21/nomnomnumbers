@@ -213,6 +213,7 @@ export function initializeDatabase(): InitResult {
     db = new Database(cfg.mealDbPath);
     db.exec("PRAGMA journal_mode = WAL");
     initTables(db);
+    runMigrations(db);
   }
 
   return {
@@ -334,6 +335,20 @@ function initTables(db: Database) {
       sodium REAL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS recipes (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      serving_size TEXT,
+      calories REAL,
+      protein REAL,
+      carbs REAL,
+      fat REAL,
+      fiber REAL,
+      sugar REAL,
+      sodium REAL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   // Migration: add tolerance column if missing (existing databases)
@@ -344,6 +359,33 @@ function initTables(db: Database) {
   }
 
   ensureCustomFoodsFTS(db);
+}
+
+// ---- Migrations ----
+
+const migrations: Array<(db: Database) => void> = [
+  // Migration 1: Convert UTC logged_at timestamps to local time.
+  // Previously datetime('now') stored UTC; now we store local time explicitly.
+  // SQLite's 'localtime' modifier converts UTC → local using the system timezone.
+  (db) => {
+    db.exec("UPDATE meals SET logged_at = datetime(logged_at, 'localtime')");
+  },
+];
+
+function runMigrations(db: Database): void {
+  const currentVersion = (db.query("PRAGMA user_version").get() as { user_version: number }).user_version;
+
+  for (let i = currentVersion; i < migrations.length; i++) {
+    db.exec("BEGIN");
+    try {
+      migrations[i]!(db);
+      db.exec(`PRAGMA user_version = ${i + 1}`);
+      db.exec("COMMIT");
+    } catch (e) {
+      db.exec("ROLLBACK");
+      throw e;
+    }
+  }
 }
 
 export interface FoodResult {
@@ -357,6 +399,7 @@ export interface FoodResult {
   carbs: number | null;
   fat: number | null;
   fiber: number | null;
+  netCarbs: number | null;
   sugar: number | null;
   sodium: number | null;
 }
@@ -373,6 +416,8 @@ export interface MealResult {
   protein: number | null;
   carbs: number | null;
   fat: number | null;
+  fiber: number | null;
+  netCarbs: number | null;
 }
 
 export interface CustomFood {
@@ -386,9 +431,34 @@ export interface CustomFood {
   carbs: number | null;
   fat: number | null;
   fiber: number | null;
+  netCarbs: number | null;
   sugar: number | null;
   sodium: number | null;
   createdAt: string;
+}
+
+export interface Recipe {
+  id: string;
+  name: string;
+  servingSize: string | null;
+  calories: number | null;
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
+  fiber: number | null;
+  netCarbs: number | null;
+  sugar: number | null;
+  sodium: number | null;
+  createdAt: string;
+}
+
+function roundNutrition(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+export function calculateNetCarbs(carbs: number | null | undefined, fiber: number | null | undefined): number | null {
+  if (carbs === null || carbs === undefined) return null;
+  return roundNutrition(carbs - (fiber ?? 0));
 }
 
 export function searchFoods(query: string, limit: number = 10): FoodResult[] {
@@ -446,6 +516,7 @@ function rowToFoodResult(row: {
     carbs: d.carbs ?? null,
     fat: d.fat ?? null,
     fiber: d.fiber ?? null,
+    netCarbs: calculateNetCarbs(d.carbs ?? null, d.fiber ?? null),
     sugar: d.sugar ?? null,
     sodium: d.sodium ?? null,
   };
@@ -531,7 +602,7 @@ export function listCustomFoods(): CustomFood[] {
   return rows.map(r => ({
     id: r.id, description: r.description, brand: r.brand, barcode: r.barcode,
     servingSize: r.serving_size, calories: r.calories, protein: r.protein,
-    carbs: r.carbs, fat: r.fat, fiber: r.fiber, sugar: r.sugar,
+    carbs: r.carbs, fat: r.fat, fiber: r.fiber, netCarbs: calculateNetCarbs(r.carbs, r.fiber), sugar: r.sugar,
     sodium: r.sodium, createdAt: r.created_at,
   }));
 }
@@ -579,7 +650,7 @@ export function searchCustomFoods(query: string, limit: number = 10): CustomFood
   return rows.map(r => ({
     id: r.id, description: r.description, brand: r.brand, barcode: r.barcode,
     servingSize: r.serving_size, calories: r.calories, protein: r.protein,
-    carbs: r.carbs, fat: r.fat, fiber: r.fiber, sugar: r.sugar,
+    carbs: r.carbs, fat: r.fat, fiber: r.fiber, netCarbs: calculateNetCarbs(r.carbs, r.fiber), sugar: r.sugar,
     sodium: r.sodium, createdAt: r.created_at,
   }));
 }
@@ -602,9 +673,153 @@ export function lookupCustomBarcode(barcode: string): CustomFood | null {
   return {
     id: row.id, description: row.description, brand: row.brand, barcode: row.barcode,
     servingSize: row.serving_size, calories: row.calories, protein: row.protein,
-    carbs: row.carbs, fat: row.fat, fiber: row.fiber, sugar: row.sugar,
+    carbs: row.carbs, fat: row.fat, fiber: row.fiber, netCarbs: calculateNetCarbs(row.carbs, row.fiber), sugar: row.sugar,
     sodium: row.sodium, createdAt: row.created_at,
   };
+}
+
+export function addRecipe(input: {
+  name: string;
+  servingSize?: string;
+  calories?: number;
+  protein?: number;
+  carbs?: number;
+  fat?: number;
+  fiber?: number;
+  sugar?: number;
+  sodium?: number;
+}): string {
+  const db = getDb();
+  const existing = db.query(`
+    SELECT id
+    FROM recipes
+    WHERE name = ?
+      AND serving_size IS ?
+      AND calories IS ?
+      AND protein IS ?
+      AND carbs IS ?
+      AND fat IS ?
+      AND fiber IS ?
+      AND sugar IS ?
+      AND sodium IS ?
+    LIMIT 1
+  `).get(
+    input.name,
+    input.servingSize ?? null,
+    input.calories ?? null,
+    input.protein ?? null,
+    input.carbs ?? null,
+    input.fat ?? null,
+    input.fiber ?? null,
+    input.sugar ?? null,
+    input.sodium ?? null
+  ) as { id: string } | null;
+
+  if (existing) return existing.id;
+
+  const id = crypto.randomUUID();
+
+  db.query(`
+    INSERT INTO recipes (id, name, serving_size, calories, protein, carbs, fat, fiber, sugar, sodium)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    input.name,
+    input.servingSize ?? null,
+    input.calories ?? null,
+    input.protein ?? null,
+    input.carbs ?? null,
+    input.fat ?? null,
+    input.fiber ?? null,
+    input.sugar ?? null,
+    input.sodium ?? null
+  );
+
+  return id;
+}
+
+export function listRecipes(): Recipe[] {
+  const db = getDb();
+  const rows = db.query(`
+    SELECT id, name, serving_size, calories, protein, carbs, fat, fiber, sugar, sodium, created_at
+    FROM recipes
+    ORDER BY created_at DESC
+  `).all() as Array<{
+    id: string;
+    name: string;
+    serving_size: string | null;
+    calories: number | null;
+    protein: number | null;
+    carbs: number | null;
+    fat: number | null;
+    fiber: number | null;
+    sugar: number | null;
+    sodium: number | null;
+    created_at: string;
+  }>;
+
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    servingSize: r.serving_size,
+    calories: r.calories,
+    protein: r.protein,
+    carbs: r.carbs,
+    fat: r.fat,
+    fiber: r.fiber,
+    netCarbs: calculateNetCarbs(r.carbs, r.fiber),
+    sugar: r.sugar,
+    sodium: r.sodium,
+    createdAt: r.created_at,
+  }));
+}
+
+export function getRecipeById(id: string): Recipe | null {
+  const db = getDb();
+  const row = db.query(`
+    SELECT id, name, serving_size, calories, protein, carbs, fat, fiber, sugar, sodium, created_at
+    FROM recipes
+    WHERE id = ?
+    LIMIT 1
+  `).get(id) as {
+    id: string;
+    name: string;
+    serving_size: string | null;
+    calories: number | null;
+    protein: number | null;
+    carbs: number | null;
+    fat: number | null;
+    fiber: number | null;
+    sugar: number | null;
+    sodium: number | null;
+    created_at: string;
+  } | null;
+
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    name: row.name,
+    servingSize: row.serving_size,
+    calories: row.calories,
+    protein: row.protein,
+    carbs: row.carbs,
+    fat: row.fat,
+    fiber: row.fiber,
+    netCarbs: calculateNetCarbs(row.carbs, row.fiber),
+    sugar: row.sugar,
+    sodium: row.sodium,
+    createdAt: row.created_at,
+  };
+}
+
+export function deleteRecipe(id: string): { deleted: boolean; name: string | null } {
+  const db = getDb();
+  const row = db.query("SELECT name FROM recipes WHERE id = ?").get(id) as { name: string } | null;
+  if (!row) return { deleted: false, name: null };
+
+  db.query("DELETE FROM recipes WHERE id = ?").run(id);
+  return { deleted: true, name: row.name };
 }
 
 export function logMeal(input: {
@@ -662,7 +877,7 @@ export function getMealById(id: string): MealResult | null {
   const db = getDb();
   const row = db.query(`
     SELECT id, food_name, quantity, unit, meal_type, logged_at, notes,
-           calories, protein, carbs, fat
+           calories, protein, carbs, fat, fiber_g
     FROM meals WHERE id = ?
   `).get(id) as {
     id: string;
@@ -676,6 +891,7 @@ export function getMealById(id: string): MealResult | null {
     protein: number | null;
     carbs: number | null;
     fat: number | null;
+    fiber_g: number | null;
   } | null;
 
   if (!row) return null;
@@ -692,6 +908,8 @@ export function getMealById(id: string): MealResult | null {
     protein: row.protein,
     carbs: row.carbs,
     fat: row.fat,
+    fiber: row.fiber_g,
+    netCarbs: calculateNetCarbs(row.carbs, row.fiber_g),
   };
 }
 
@@ -711,12 +929,13 @@ export function updateMeal(id: string, input: {
   protein: number | null;
   carbs: number | null;
   fat: number | null;
+  fiber: number | null;
 }): boolean {
   const db = getDb();
   const result = db.query(`
     UPDATE meals SET
       food_name = ?, quantity = ?, unit = ?, meal_type = ?, notes = ?,
-      calories = ?, protein = ?, carbs = ?, fat = ?
+      calories = ?, protein = ?, carbs = ?, fat = ?, fiber_g = ?
     WHERE id = ?
   `).run(
     input.foodName,
@@ -728,6 +947,7 @@ export function updateMeal(id: string, input: {
     input.protein,
     input.carbs,
     input.fat,
+    input.fiber,
     id
   );
   return result.changes > 0;
@@ -737,7 +957,7 @@ export function getMealsByDate(date: string): MealResult[] {
   const db = getDb();
   const stmt = db.query(`
     SELECT id, food_name, quantity, unit, meal_type, logged_at, notes,
-           calories, protein, carbs, fat
+           calories, protein, carbs, fat, fiber_g
     FROM meals
     WHERE date(logged_at) = date(?)
     ORDER BY logged_at DESC
@@ -755,6 +975,7 @@ export function getMealsByDate(date: string): MealResult[] {
     protein: number | null;
     carbs: number | null;
     fat: number | null;
+    fiber_g: number | null;
   }>;
 
   return rows.map((row) => ({
@@ -769,6 +990,8 @@ export function getMealsByDate(date: string): MealResult[] {
     protein: row.protein,
     carbs: row.carbs,
     fat: row.fat,
+    fiber: row.fiber_g,
+    netCarbs: calculateNetCarbs(row.carbs, row.fiber_g),
   }));
 }
 
@@ -776,7 +999,7 @@ export function getMealHistory(limit: number = 20, offset: number = 0): MealResu
   const db = getDb();
   const stmt = db.query(`
     SELECT id, food_name, quantity, unit, meal_type, logged_at, notes,
-           calories, protein, carbs, fat
+           calories, protein, carbs, fat, fiber_g
     FROM meals
     ORDER BY logged_at DESC
     LIMIT ?
@@ -795,6 +1018,7 @@ export function getMealHistory(limit: number = 20, offset: number = 0): MealResu
     protein: number | null;
     carbs: number | null;
     fat: number | null;
+    fiber_g: number | null;
   }>;
 
   return rows.map((row) => ({
@@ -809,6 +1033,8 @@ export function getMealHistory(limit: number = 20, offset: number = 0): MealResu
     protein: row.protein,
     carbs: row.carbs,
     fat: row.fat,
+    fiber: row.fiber_g,
+    netCarbs: calculateNetCarbs(row.carbs, row.fiber_g),
   }));
 }
 
@@ -817,6 +1043,7 @@ export function getDailyTotals(date: string): {
   protein: number;
   carbs: number;
   fat: number;
+  netCarbs: number;
   mealCount: number;
 } {
   const db = getDb();
@@ -826,6 +1053,7 @@ export function getDailyTotals(date: string): {
       COALESCE(SUM(protein), 0) as protein,
       COALESCE(SUM(carbs), 0) as carbs,
       COALESCE(SUM(fat), 0) as fat,
+      COALESCE(SUM(CASE WHEN carbs IS NULL THEN 0 ELSE carbs - COALESCE(fiber_g, 0) END), 0) as net_carbs,
       COUNT(*) as meal_count
     FROM meals
     WHERE date(logged_at) = date(?)
@@ -836,14 +1064,16 @@ export function getDailyTotals(date: string): {
     protein: number;
     carbs: number;
     fat: number;
+    net_carbs: number;
     meal_count: number;
   };
 
   return {
-    calories: Math.round(row.calories * 10) / 10,
-    protein: Math.round(row.protein * 10) / 10,
-    carbs: Math.round(row.carbs * 10) / 10,
-    fat: Math.round(row.fat * 10) / 10,
+    calories: roundNutrition(row.calories),
+    protein: roundNutrition(row.protein),
+    carbs: roundNutrition(row.carbs),
+    fat: roundNutrition(row.fat),
+    netCarbs: roundNutrition(row.net_carbs),
     mealCount: row.meal_count,
   };
 }
@@ -866,12 +1096,13 @@ export interface Goal {
   updatedAt: string;
 }
 
-const VALID_GOAL_KEYS = new Set(["calories", "protein", "carbs", "fat"]);
+const VALID_GOAL_KEYS = new Set(["calories", "protein", "carbs", "fat", "netCarbs"]);
 const DEFAULT_DIRECTIONS: Record<string, "under" | "over"> = {
   calories: "under",
   protein: "over",
   carbs: "under",
   fat: "under",
+  netCarbs: "under",
 };
 
 export function setGoal(key: string, target: number, direction?: "under" | "over", tolerance?: number): void {
@@ -924,6 +1155,7 @@ export interface DailyTotal {
   protein: number;
   carbs: number;
   fat: number;
+  netCarbs: number;
   mealCount: number;
 }
 
@@ -936,6 +1168,7 @@ export function getAllDailyTotals(): DailyTotal[] {
       COALESCE(SUM(protein), 0) as protein,
       COALESCE(SUM(carbs), 0) as carbs,
       COALESCE(SUM(fat), 0) as fat,
+      COALESCE(SUM(CASE WHEN carbs IS NULL THEN 0 ELSE carbs - COALESCE(fiber_g, 0) END), 0) as net_carbs,
       COUNT(*) as meal_count
     FROM meals
     GROUP BY date(logged_at)
@@ -946,15 +1179,17 @@ export function getAllDailyTotals(): DailyTotal[] {
     protein: number;
     carbs: number;
     fat: number;
+    net_carbs: number;
     meal_count: number;
   }>;
 
   return rows.map((r) => ({
     date: r.date,
-    calories: Math.round(r.calories * 10) / 10,
-    protein: Math.round(r.protein * 10) / 10,
-    carbs: Math.round(r.carbs * 10) / 10,
-    fat: Math.round(r.fat * 10) / 10,
+    calories: roundNutrition(r.calories),
+    protein: roundNutrition(r.protein),
+    carbs: roundNutrition(r.carbs),
+    fat: roundNutrition(r.fat),
+    netCarbs: roundNutrition(r.net_carbs),
     mealCount: r.meal_count,
   }));
 }
@@ -964,15 +1199,35 @@ export function getAllDailyTotals(): DailyTotal[] {
 export interface TrendData {
   days: number;
   period: { from: string; to: string };
-  averages: { calories: number; protein: number; carbs: number; fat: number; daysWithData: number };
+  averages: { calories: number; protein: number; carbs: number; fat: number; netCarbs: number; daysWithData: number };
   daily: Array<{
     date: string;
     calories: number;
     protein: number;
     carbs: number;
     fat: number;
+    netCarbs: number;
     mealCount: number;
   }>;
+}
+
+export interface RecipeSuggestion {
+  id: string;
+  foods: [string, string];
+  frequency: number;
+  suggestedName: string;
+  calories: number | null;
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
+  fiber: number | null;
+  sugar: number | null;
+  sodium: number | null;
+  netCarbs: number | null;
+}
+
+function makeRecipeSuggestionId(foodA: string, foodB: string): string {
+  return `pair:${foodA.toLowerCase()}::${foodB.toLowerCase()}`;
 }
 
 export function getTrendData(days: number): TrendData {
@@ -991,6 +1246,7 @@ export function getTrendData(days: number): TrendData {
       COALESCE(SUM(protein), 0) as protein,
       COALESCE(SUM(carbs), 0) as carbs,
       COALESCE(SUM(fat), 0) as fat,
+      COALESCE(SUM(CASE WHEN carbs IS NULL THEN 0 ELSE carbs - COALESCE(fiber_g, 0) END), 0) as net_carbs,
       COUNT(*) as meal_count
     FROM meals
     WHERE date(logged_at) >= date(?) AND date(logged_at) <= date(?)
@@ -1002,28 +1258,108 @@ export function getTrendData(days: number): TrendData {
     protein: number;
     carbs: number;
     fat: number;
+    net_carbs: number;
     meal_count: number;
   }>;
 
   const daily = rows.map(r => ({
     date: r.date,
-    calories: Math.round(r.calories * 10) / 10,
-    protein: Math.round(r.protein * 10) / 10,
-    carbs: Math.round(r.carbs * 10) / 10,
-    fat: Math.round(r.fat * 10) / 10,
+    calories: roundNutrition(r.calories),
+    protein: roundNutrition(r.protein),
+    carbs: roundNutrition(r.carbs),
+    fat: roundNutrition(r.fat),
+    netCarbs: roundNutrition(r.net_carbs),
     mealCount: r.meal_count,
   }));
 
   const daysWithData = daily.length;
   const averages = daysWithData > 0
     ? {
-      calories: Math.round(daily.reduce((s, d) => s + d.calories, 0) / daysWithData * 10) / 10,
-      protein: Math.round(daily.reduce((s, d) => s + d.protein, 0) / daysWithData * 10) / 10,
-      carbs: Math.round(daily.reduce((s, d) => s + d.carbs, 0) / daysWithData * 10) / 10,
-      fat: Math.round(daily.reduce((s, d) => s + d.fat, 0) / daysWithData * 10) / 10,
+      calories: roundNutrition(daily.reduce((s, d) => s + d.calories, 0) / daysWithData),
+      protein: roundNutrition(daily.reduce((s, d) => s + d.protein, 0) / daysWithData),
+      carbs: roundNutrition(daily.reduce((s, d) => s + d.carbs, 0) / daysWithData),
+      fat: roundNutrition(daily.reduce((s, d) => s + d.fat, 0) / daysWithData),
+      netCarbs: roundNutrition(daily.reduce((s, d) => s + d.netCarbs, 0) / daysWithData),
       daysWithData,
     }
-    : { calories: 0, protein: 0, carbs: 0, fat: 0, daysWithData: 0 };
+    : { calories: 0, protein: 0, carbs: 0, fat: 0, netCarbs: 0, daysWithData: 0 };
 
   return { days, period: { from: fromStr, to: toStr }, averages, daily };
+}
+
+export function getRecipeSuggestions(days: number, minOccurrences: number = 3, limit: number = 10): RecipeSuggestion[] {
+  const db = getDb();
+  const to = new Date();
+  const from = new Date();
+  from.setDate(from.getDate() - days + 1);
+
+  const toStr = `${to.getFullYear()}-${String(to.getMonth() + 1).padStart(2, "0")}-${String(to.getDate()).padStart(2, "0")}`;
+  const fromStr = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, "0")}-${String(from.getDate()).padStart(2, "0")}`;
+
+  const rows = db.query(`
+    WITH daily_pairs AS (
+      SELECT
+        date(a.logged_at) AS meal_date,
+        CASE WHEN a.food_name <= b.food_name THEN a.food_name ELSE b.food_name END AS food_a,
+        CASE WHEN a.food_name <= b.food_name THEN b.food_name ELSE a.food_name END AS food_b,
+        AVG(CASE WHEN a.calories IS NULL OR b.calories IS NULL THEN NULL ELSE a.calories + b.calories END) AS calories,
+        AVG(CASE WHEN a.protein IS NULL OR b.protein IS NULL THEN NULL ELSE a.protein + b.protein END) AS protein,
+        AVG(CASE WHEN a.carbs IS NULL OR b.carbs IS NULL THEN NULL ELSE a.carbs + b.carbs END) AS carbs,
+        AVG(CASE WHEN a.fat IS NULL OR b.fat IS NULL THEN NULL ELSE a.fat + b.fat END) AS fat,
+        AVG(CASE WHEN a.fiber_g IS NULL OR b.fiber_g IS NULL THEN NULL ELSE a.fiber_g + b.fiber_g END) AS fiber,
+        AVG(CASE WHEN a.sugar_g IS NULL OR b.sugar_g IS NULL THEN NULL ELSE a.sugar_g + b.sugar_g END) AS sugar,
+        AVG(CASE WHEN a.sodium_mg IS NULL OR b.sodium_mg IS NULL THEN NULL ELSE a.sodium_mg + b.sodium_mg END) AS sodium
+      FROM meals a
+      JOIN meals b
+        ON date(a.logged_at) = date(b.logged_at)
+        AND a.id < b.id
+        AND a.food_name != b.food_name
+       AND a.meal_type = b.meal_type
+       AND ABS(strftime('%s', a.logged_at) - strftime('%s', b.logged_at)) <= 7200
+      WHERE date(a.logged_at) >= date(?) AND date(a.logged_at) <= date(?)
+      GROUP BY meal_date, food_a, food_b
+    )
+    SELECT
+      food_a,
+      food_b,
+      COUNT(*) AS frequency,
+      AVG(calories) AS calories,
+      AVG(protein) AS protein,
+      AVG(carbs) AS carbs,
+      AVG(fat) AS fat,
+      AVG(fiber) AS fiber,
+      AVG(sugar) AS sugar,
+      AVG(sodium) AS sodium
+    FROM daily_pairs
+    GROUP BY food_a, food_b
+    HAVING COUNT(*) >= ?
+    ORDER BY frequency DESC, food_a ASC, food_b ASC
+    LIMIT ?
+  `).all(fromStr, toStr, minOccurrences, limit) as Array<{
+    food_a: string;
+    food_b: string;
+    frequency: number;
+    calories: number | null;
+    protein: number | null;
+    carbs: number | null;
+    fat: number | null;
+    fiber: number | null;
+    sugar: number | null;
+    sodium: number | null;
+  }>;
+
+  return rows.map((row) => ({
+    id: makeRecipeSuggestionId(row.food_a, row.food_b),
+    foods: [row.food_a, row.food_b],
+    frequency: row.frequency,
+    suggestedName: `${row.food_a} + ${row.food_b}`,
+    calories: row.calories === null ? null : roundNutrition(row.calories),
+    protein: row.protein === null ? null : roundNutrition(row.protein),
+    carbs: row.carbs === null ? null : roundNutrition(row.carbs),
+    fat: row.fat === null ? null : roundNutrition(row.fat),
+    fiber: row.fiber === null ? null : roundNutrition(row.fiber),
+    sugar: row.sugar === null ? null : roundNutrition(row.sugar),
+    sodium: row.sodium === null ? null : roundNutrition(row.sodium),
+    netCarbs: calculateNetCarbs(row.carbs, row.fiber),
+  }));
 }

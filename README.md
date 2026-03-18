@@ -43,6 +43,10 @@ nomnom log "Chicken Breast" --qty 1 --calories 165 --protein 31
 # Log by barcode
 nomnom lookup 00000000924665
 nomnom log "Quest Bar" --calories 200 --protein 21
+
+# Save and reuse a repeatable meal
+nomnom recipe create "Chicken Bowl" --calories 500 --protein 35 --carbs 42 --fat 18 --fiber 9
+nomnom recipe log <recipe-id> --multiplier 2
 ```
 
 ### Track Progress
@@ -66,6 +70,12 @@ nomnom history --limit 10 --human
 
 # Weekly trends (AI uses this for insights)
 nomnom trends --days 7
+
+# Find repeated meal combos worth saving as recipes
+nomnom trends suggest-recipes --days 30 --min-occurrences 3
+
+# Convert a suggestion into a saved recipe in one step
+nomnom trends apply-suggestion <suggestion-id> --days 30 --min-occurrences 3
 ```
 
 ## AI Integration
@@ -127,10 +137,11 @@ result=$(nomnom today)
 | `edit <id> [options]` | Edit a meal |
 | `today` | Today's summary |
 | `history` | Meal history |
-| `trends` | Nutrition trends |
+| `trends` | Nutrition trends, recipe suggestions, and suggestion application |
 | `goals` | Set/view goals |
 | `progress` | Progress vs goals |
 | `foods add/list/delete` | Manage custom foods |
+| `recipe create/list/log/delete` | Manage reusable recipe templates |
 | `config` | View/modify config |
 | `mcp` | Start MCP server |
 
