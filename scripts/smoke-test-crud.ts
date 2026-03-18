@@ -43,6 +43,15 @@ function run(...args: string[]): { stdout: string; stderr: string; exitCode: num
   };
 }
 
+function runEval(code: string): { stdout: string; stderr: string; exitCode: number } {
+  const result = Bun.spawnSync(["bun", "-e", code], { cwd: projectRoot, stderr: "pipe" });
+  return {
+    stdout: new TextDecoder().decode(result.stdout).trim(),
+    stderr: new TextDecoder().decode(result.stderr).trim(),
+    exitCode: result.exitCode ?? 1,
+  };
+}
+
 function resetDb(): void {
   for (const suffix of ["", "-wal", "-shm"]) {
     const p = dbPath + suffix;
@@ -56,7 +65,7 @@ function resetDb(): void {
 console.log("\n--- Section 1: Custom Foods — foods add ---");
 resetDb();
 
-const addHuel = run("foods", "add", "Huel Black", "--brand", "Huel", "--calories", "400", "--protein", "40", "--carbs", "37", "--fat", "13", "--serving", "1 bottle");
+const addHuel = run("foods", "add", "Huel Black", "--brand", "Huel", "--calories", "400", "--protein", "40", "--carbs", "37", "--fat", "13", "--fiber", "15", "--serving", "1 bottle");
 check("S1: foods add Huel exits 0", addHuel.exitCode === 0, `exit=${addHuel.exitCode}`);
 const huelJson = JSON.parse(addHuel.stdout);
 check("S1: foods add Huel success", huelJson.success === true);
@@ -64,7 +73,7 @@ check("S1: foods add Huel has id", typeof huelJson.id === "string" && huelJson.i
 check("S1: foods add Huel name", huelJson.name === "Huel Black", `name=${huelJson.name}`);
 const huelId = huelJson.id;
 
-const addBar = run("foods", "add", "Test Bar", "--barcode", "1234567890", "--calories", "200", "--protein", "20", "--carbs", "22", "--fat", "8");
+const addBar = run("foods", "add", "Test Bar", "--barcode", "1234567890", "--calories", "200", "--protein", "20", "--carbs", "22", "--fat", "8", "--fiber", "9");
 check("S1: foods add Test Bar exits 0", addBar.exitCode === 0, `exit=${addBar.exitCode}`);
 const barJson = JSON.parse(addBar.stdout);
 check("S1: foods add Test Bar success", barJson.success === true);
@@ -83,6 +92,8 @@ check("S2: foods list count = 2", listJson.count === 2, `count=${listJson.count}
 const foodNames = listJson.foods.map((f: { name: string }) => f.name);
 check("S2: Huel Black in list", foodNames.includes("Huel Black"), `names=${foodNames}`);
 check("S2: Test Bar in list", foodNames.includes("Test Bar"), `names=${foodNames}`);
+const huelListItem = listJson.foods.find((f: { name: string }) => f.name === "Huel Black");
+check("S2: Huel list item exposes netCarbs", huelListItem?.netCarbs === 22, `netCarbs=${huelListItem?.netCarbs}`);
 
 // ============================================================
 // Section 3: Custom Foods — search integration
@@ -97,6 +108,7 @@ const customResult = searchJson.results.find((r: { source: string }) => r.source
 check("S3: has custom source result", customResult !== undefined);
 check("S3: custom result has id (not fdcId)", typeof customResult?.id === "string", `id=${customResult?.id}`);
 check("S3: custom result description matches", customResult?.description === "Huel Black", `desc=${customResult?.description}`);
+check("S3: custom search result exposes netCarbs", customResult?.netCarbs === 22, `netCarbs=${customResult?.netCarbs}`);
 
 // ============================================================
 // Section 4: Custom Foods — barcode lookup integration
@@ -109,6 +121,7 @@ const lookupJson = JSON.parse(lookupBar.stdout);
 check("S4: lookup found = true", lookupJson.found === true, `found=${lookupJson.found}`);
 check("S4: lookup source = custom", lookupJson.source === "custom", `source=${lookupJson.source}`);
 check("S4: lookup description = Test Bar", lookupJson.description === "Test Bar", `desc=${lookupJson.description}`);
+check("S4: lookup exposes netCarbs", lookupJson.netCarbs === 13, `netCarbs=${lookupJson.netCarbs}`);
 
 // ============================================================
 // Section 5: Custom Foods — foods delete
@@ -126,12 +139,110 @@ check("S5: foods list count = 1 after delete", listAfterJson.count === 1, `count
 check("S5: only Huel remains", listAfterJson.foods[0]?.name === "Huel Black", `name=${listAfterJson.foods[0]?.name}`);
 
 // ============================================================
-// Section 6: Log + Delete meal
+// Section 6: Recipes
 // ============================================================
-console.log("\n--- Section 6: Log + Delete meal ---");
+console.log("\n--- Section 6: Recipes ---");
 resetDb();
 
-const logMeal = run("log", "Test Meal", "--calories", "300", "--protein", "25");
+const createRecipe = run("recipe", "create", "Chicken Bowl", "--calories", "500", "--protein", "35", "--carbs", "42", "--fat", "18", "--fiber", "9", "--serving", "bowl");
+check("S6: recipe create exits 0", createRecipe.exitCode === 0, `exit=${createRecipe.exitCode}`);
+const createRecipeJson = JSON.parse(createRecipe.stdout);
+check("S6: recipe create success", createRecipeJson.success === true);
+check("S6: recipe create name", createRecipeJson.name === "Chicken Bowl", `name=${createRecipeJson.name}`);
+check("S6: recipe create netCarbs", createRecipeJson.netCarbs === 33, `netCarbs=${createRecipeJson.netCarbs}`);
+const recipeId = createRecipeJson.id;
+
+const createRecipeAgain = run("recipe", "create", "Chicken Bowl", "--calories", "500", "--protein", "35", "--carbs", "42", "--fat", "18", "--fiber", "9", "--serving", "bowl");
+check("S6: recipe create is idempotent", JSON.parse(createRecipeAgain.stdout).id === recipeId, `id=${JSON.parse(createRecipeAgain.stdout).id}`);
+
+const listRecipes = run("recipe", "list");
+check("S6: recipe list exits 0", listRecipes.exitCode === 0, `exit=${listRecipes.exitCode}`);
+const listRecipesJson = JSON.parse(listRecipes.stdout);
+check("S6: recipe list count = 1", listRecipesJson.count === 1, `count=${listRecipesJson.count}`);
+check("S6: recipe list exposes netCarbs", listRecipesJson.recipes[0]?.netCarbs === 33, `netCarbs=${listRecipesJson.recipes[0]?.netCarbs}`);
+const listRecipesHuman = run("recipe", "list", "--human");
+check("S6: recipe list human output includes id", listRecipesHuman.stdout.includes(recipeId), `stdout=${listRecipesHuman.stdout}`);
+
+const logRecipe = run("recipe", "log", recipeId, "--multiplier", "2", "--type", "dinner");
+check("S6: recipe log exits 0", logRecipe.exitCode === 0, `exit=${logRecipe.exitCode}`);
+const logRecipeJson = JSON.parse(logRecipe.stdout);
+check("S6: recipe log success", logRecipeJson.success === true);
+check("S6: recipe log returns mealId", typeof logRecipeJson.mealId === "string" && logRecipeJson.mealId.length > 0, `mealId=${logRecipeJson.mealId}`);
+check("S6: recipe log includes hints", Array.isArray(logRecipeJson.hints) && logRecipeJson.hints.length >= 1, `hints=${JSON.stringify(logRecipeJson.hints)}`);
+check("S6: recipe log returns actual nutrition", logRecipeJson.actualNutrition?.calories === 1000 && logRecipeJson.actualNutrition?.netCarbs === 66, `actualNutrition=${JSON.stringify(logRecipeJson.actualNutrition)}`);
+
+const todayRecipe = run("today");
+const todayRecipeJson = JSON.parse(todayRecipe.stdout);
+check("S6: today has one meal after recipe log", todayRecipeJson.totals.mealCount === 1, `count=${todayRecipeJson.totals.mealCount}`);
+check("S6: recipe log scaled calories", todayRecipeJson.meals[0]?.calories === 1000, `calories=${todayRecipeJson.meals[0]?.calories}`);
+check("S6: recipe log scaled netCarbs", todayRecipeJson.meals[0]?.netCarbs === 66, `netCarbs=${todayRecipeJson.meals[0]?.netCarbs}`);
+
+const deleteRecipe = run("recipe", "delete", recipeId);
+check("S6: recipe delete exits 0", deleteRecipe.exitCode === 0, `exit=${deleteRecipe.exitCode}`);
+const deleteRecipeJson = JSON.parse(deleteRecipe.stdout);
+check("S6: recipe delete success", deleteRecipeJson.success === true);
+
+const listRecipesAfterDelete = run("recipe", "list");
+const listRecipesAfterDeleteJson = JSON.parse(listRecipesAfterDelete.stdout);
+check("S6: recipe list count = 0 after delete", listRecipesAfterDeleteJson.count === 0, `count=${listRecipesAfterDeleteJson.count}`);
+
+// ============================================================
+// Section 7: Trend recipe suggestions
+// ============================================================
+console.log("\n--- Section 7: Trend recipe suggestions ---");
+resetDb();
+
+const seedSuggestions = runEval(`
+  import { initializeDatabase, getDb } from "./src/db.ts";
+
+  initializeDatabase();
+  const db = getDb();
+  const stmt = db.query(\`
+    INSERT INTO meals (id, food_name, quantity, unit, meal_type, logged_at, notes, calories, protein, carbs, fat, fiber_g, sugar_g, sodium_mg)
+    VALUES (?, ?, 1, 'serving', 'lunch', ?, NULL, ?, ?, ?, ?, ?, ?, ?)
+  \`);
+
+  for (const offset of [0, -1, -2]) {
+    const d = new Date();
+    d.setDate(d.getDate() + offset);
+    const date = \`\${d.getFullYear()}-\${String(d.getMonth() + 1).padStart(2, "0")}-\${String(d.getDate()).padStart(2, "0")}\`;
+    stmt.run(crypto.randomUUID(), "Chicken Bowl", \`\${date} 12:00:00\`, 500, 35, 42, 18, 9, 6, 700);
+    stmt.run(crypto.randomUUID(), "Greek Yogurt", \`\${date} 12:20:00\`, 150, 15, 12, 3, 0, 10, 55);
+    stmt.run(crypto.randomUUID(), "Mystery Meal", \`\${date} 18:00:00\`, null, 10, 8, 4, 2, 3, 200);
+    stmt.run(crypto.randomUUID(), "Known Side", \`\${date} 18:05:00\`, 120, 4, 20, 2, 5, 2, 150);
+  }
+`);
+check("S7: seeded repeat combos", seedSuggestions.exitCode === 0, seedSuggestions.stderr);
+
+const suggestRecipes = run("trends", "suggest-recipes", "--days", "30", "--min-occurrences", "3");
+check("S7: suggest-recipes exits 0", suggestRecipes.exitCode === 0, `exit=${suggestRecipes.exitCode}`);
+const suggestRecipesJson = JSON.parse(suggestRecipes.stdout);
+check("S7: suggest-recipes count = 2", suggestRecipesJson.count === 2, `count=${suggestRecipesJson.count}`);
+const chickenSuggestion = suggestRecipesJson.suggestions.find((s: { foods: string[] }) => s.foods.join(",") === "Chicken Bowl,Greek Yogurt");
+const mysterySuggestion = suggestRecipesJson.suggestions.find((s: { foods: string[] }) => s.foods.join(",") === "Known Side,Mystery Meal");
+check("S7: chicken suggestion frequency = 3", chickenSuggestion?.frequency === 3, `frequency=${chickenSuggestion?.frequency}`);
+check("S7: chicken suggestion has stable id", typeof chickenSuggestion?.id === "string" && chickenSuggestion.id.length > 0, `id=${chickenSuggestion?.id}`);
+check("S7: chicken suggestion apply hint exists", chickenSuggestion?.hints?.[0]?.command?.includes("nomnom trends apply-suggestion"), `command=${chickenSuggestion?.hints?.[0]?.command}`);
+check("S7: chicken suggestion create hint preserves sugar", chickenSuggestion?.hints?.[1]?.command?.includes("--sugar 16"), `command=${chickenSuggestion?.hints?.[1]?.command}`);
+check("S7: chicken suggestion create hint preserves sodium", chickenSuggestion?.hints?.[1]?.command?.includes("--sodium 755"), `command=${chickenSuggestion?.hints?.[1]?.command}`);
+check("S7: mystery suggestion null calories propagate", mysterySuggestion?.nutrition?.calories === null, `calories=${mysterySuggestion?.nutrition?.calories}`);
+
+const applySuggestion = run("trends", "apply-suggestion", chickenSuggestion.id, "--days", "30", "--min-occurrences", "3");
+check("S7: apply-suggestion exits 0", applySuggestion.exitCode === 0, `exit=${applySuggestion.exitCode}`);
+const applySuggestionJson = JSON.parse(applySuggestion.stdout);
+check("S7: apply-suggestion success", applySuggestionJson.success === true);
+check("S7: apply-suggestion preserves suggestionId", applySuggestionJson.suggestionId === chickenSuggestion.id, `suggestionId=${applySuggestionJson.suggestionId}`);
+check("S7: apply-suggestion returns recipe hint", applySuggestionJson.hints?.[0]?.command?.includes("nomnom recipe log"), `command=${applySuggestionJson.hints?.[0]?.command}`);
+const applySuggestionAgain = run("trends", "apply-suggestion", chickenSuggestion.id, "--days", "30", "--min-occurrences", "3");
+check("S7: apply-suggestion is idempotent", JSON.parse(applySuggestionAgain.stdout).id === applySuggestionJson.id, `id=${JSON.parse(applySuggestionAgain.stdout).id}`);
+
+// ============================================================
+// Section 8: Log + Delete meal
+// ============================================================
+console.log("\n--- Section 8: Log + Delete meal ---");
+resetDb();
+
+const logMeal = run("log", "Test Meal", "--calories", "300", "--protein", "25", "--carbs", "18", "--fiber", "6");
 check("S6: log exits 0", logMeal.exitCode === 0, `exit=${logMeal.exitCode}`);
 const logJson = JSON.parse(logMeal.stdout);
 check("S6: log success", logJson.success === true);
@@ -140,6 +251,9 @@ const mealId = logJson.id;
 const todayBefore = run("today");
 const todayBeforeJson = JSON.parse(todayBefore.stdout);
 check("S6: today shows meal (count=1)", todayBeforeJson.totals.mealCount === 1, `count=${todayBeforeJson.totals.mealCount}`);
+check("S6: today totals expose netCarbs", todayBeforeJson.totals.netCarbs === 12, `netCarbs=${todayBeforeJson.totals.netCarbs}`);
+check("S6: meal exposes fiber", todayBeforeJson.meals[0]?.fiber === 6, `fiber=${todayBeforeJson.meals[0]?.fiber}`);
+check("S6: meal exposes netCarbs", todayBeforeJson.meals[0]?.netCarbs === 12, `netCarbs=${todayBeforeJson.meals[0]?.netCarbs}`);
 
 const deleteMeal = run("delete", mealId);
 check("S6: delete exits 0", deleteMeal.exitCode === 0, `exit=${deleteMeal.exitCode}`);
@@ -152,22 +266,23 @@ const todayAfterJson = JSON.parse(todayAfter.stdout);
 check("S6: today meal count drops to 0", todayAfterJson.totals.mealCount === 0, `count=${todayAfterJson.totals.mealCount}`);
 
 // ============================================================
-// Section 7: Log + Edit meal
+// Section 9: Log + Edit meal
 // ============================================================
-console.log("\n--- Section 7: Log + Edit meal ---");
+console.log("\n--- Section 9: Log + Edit meal ---");
 resetDb();
 
-const logEdit = run("log", "Edit Test", "--calories", "100", "--protein", "10", "--type", "breakfast");
+const logEdit = run("log", "Edit Test", "--calories", "100", "--protein", "10", "--carbs", "20", "--fiber", "5", "--type", "breakfast");
 check("S7: log exits 0", logEdit.exitCode === 0, `exit=${logEdit.exitCode}`);
 const logEditJson = JSON.parse(logEdit.stdout);
 const editId = logEditJson.id;
 
-const editResult = run("edit", editId, "--calories", "200", "--fat", "15");
+const editResult = run("edit", editId, "--calories", "200", "--fat", "15", "--fiber", "8");
 check("S7: edit exits 0", editResult.exitCode === 0, `exit=${editResult.exitCode}`);
 const editJson = JSON.parse(editResult.stdout);
 check("S7: edit success", editJson.success === true);
 check("S7: edit updated contains calories", editJson.updated.includes("calories"), `updated=${editJson.updated}`);
 check("S7: edit updated contains fat", editJson.updated.includes("fat"), `updated=${editJson.updated}`);
+check("S7: edit updated contains fiber", editJson.updated.includes("fiber"), `updated=${editJson.updated}`);
 
 const editNoChange = run("edit", editId);
 check("S7: edit no-change exits 0", editNoChange.exitCode === 0, `exit=${editNoChange.exitCode}`);
@@ -181,11 +296,13 @@ check("S7: edited meal exists in today", editedMeal !== undefined);
 check("S7: edited calories = 200", editedMeal?.calories === 200, `calories=${editedMeal?.calories}`);
 check("S7: edited fat = 15", editedMeal?.fat === 15, `fat=${editedMeal?.fat}`);
 check("S7: edited protein unchanged = 10", editedMeal?.protein === 10, `protein=${editedMeal?.protein}`);
+check("S7: edited fiber = 8", editedMeal?.fiber === 8, `fiber=${editedMeal?.fiber}`);
+check("S7: edited netCarbs = 12", editedMeal?.netCarbs === 12, `netCarbs=${editedMeal?.netCarbs}`);
 
 // ============================================================
-// Section 8: Error cases
+// Section 10: Error cases
 // ============================================================
-console.log("\n--- Section 8: Error cases ---");
+console.log("\n--- Section 10: Error cases ---");
 
 const deleteNonexistent = run("delete", "nonexistent-id");
 check("S8: delete nonexistent exits 1", deleteNonexistent.exitCode === 1, `exit=${deleteNonexistent.exitCode}`);

@@ -28,14 +28,57 @@ import {
   deleteCustomFood,
   searchCustomFoods,
   lookupCustomBarcode,
+  addRecipe,
+  listRecipes,
+  getRecipeById,
+  deleteRecipe,
+  getRecipeSuggestions,
   type FoodResult,
   type CustomFood,
   type MealResult,
+  type Recipe,
   getAllDailyTotals,
   getTrendData,
   type Goal,
   type DailyTotal,
 } from "./db";
+import {
+  ConfigUpdatePayloadSchema,
+  ConfigViewPayloadSchema,
+  CustomFoodListItemSchema,
+  CustomFoodSearchOutputSchema,
+  DeletePayloadSchema,
+  EditPayloadSchema,
+  FoodOutputSchema,
+  FoodsAddPayloadSchema,
+  FoodsDeletePayloadSchema,
+  FoodsListPayloadSchema,
+  GoalsResetPayloadSchema,
+  GoalsSetPayloadSchema,
+  GoalsViewPayloadSchema,
+  HistoryPayloadSchema,
+  InitPayloadSchema,
+  LogPayloadSchema,
+  LookupPayloadSchema,
+  MealOutputSchema,
+  ProgressPayloadSchema,
+  RecipeCreatePayloadSchema,
+  RecipeDeletePayloadSchema,
+  RecipeApplySuggestionPayloadSchema,
+  RecipeListPayloadSchema,
+  RecipeLogPayloadSchema,
+  RecipeOutputSchema,
+  SearchPayloadSchema,
+  TodayPayloadSchema,
+  TrendRecipeSuggestionsPayloadSchema,
+  TrendsPayloadSchema,
+  type CustomFoodListItem,
+  type CustomFoodSearchOutput,
+  type FoodOutput,
+  type MealOutput,
+  type RecipeOutput,
+  type RecipeSuggestionOutput,
+} from "./contracts";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
@@ -117,8 +160,12 @@ function parseOptionalFloat(value: string | undefined): number | undefined {
 
 const VALID_MEAL_TYPES = new Set(["breakfast", "lunch", "dinner", "snack"]);
 
-function formatFood(food: FoodResult): Record<string, unknown> {
-  return {
+function parseOutput<T>(schema: { parse: (data: unknown) => T }, data: unknown): T {
+  return schema.parse(data);
+}
+
+function formatFood(food: FoodResult): FoodOutput {
+  return parseOutput(FoodOutputSchema, {
     fdcId: food.fdcId,
     description: food.description,
     brand: food.brand,
@@ -129,14 +176,15 @@ function formatFood(food: FoodResult): Record<string, unknown> {
     carbs: food.carbs,
     fat: food.fat,
     fiber: food.fiber,
+    netCarbs: food.netCarbs,
     sugar: food.sugar,
     sodium: food.sodium,
     source: "usda",
-  };
+  });
 }
 
-function formatCustomFood(f: CustomFood): Record<string, unknown> {
-  return {
+function formatCustomFood(f: CustomFood): CustomFoodSearchOutput {
+  return parseOutput(CustomFoodSearchOutputSchema, {
     id: f.id,
     description: f.description,
     brand: f.brand,
@@ -147,14 +195,15 @@ function formatCustomFood(f: CustomFood): Record<string, unknown> {
     carbs: f.carbs,
     fat: f.fat,
     fiber: f.fiber,
+    netCarbs: f.netCarbs,
     sugar: f.sugar,
     sodium: f.sodium,
     source: "custom",
-  };
+  });
 }
 
-function formatMeal(meal: MealResult): Record<string, unknown> {
-  return {
+function formatMeal(meal: MealResult): MealOutput {
+  return parseOutput(MealOutputSchema, {
     id: meal.id,
     foodName: meal.foodName,
     quantity: meal.quantity,
@@ -166,7 +215,104 @@ function formatMeal(meal: MealResult): Record<string, unknown> {
     protein: meal.protein,
     carbs: meal.carbs,
     fat: meal.fat,
-  };
+    fiber: meal.fiber,
+    netCarbs: meal.netCarbs,
+  });
+}
+
+function formatCustomFoodListItem(food: CustomFood): CustomFoodListItem {
+  return parseOutput(CustomFoodListItemSchema, {
+    id: food.id,
+    name: food.description,
+    brand: food.brand,
+    barcode: food.barcode,
+    servingSize: food.servingSize,
+    calories: food.calories,
+    protein: food.protein,
+    carbs: food.carbs,
+    fat: food.fat,
+    fiber: food.fiber,
+    netCarbs: food.netCarbs,
+    sugar: food.sugar,
+    sodium: food.sodium,
+    createdAt: food.createdAt,
+  });
+}
+
+function formatRecipe(recipe: Recipe): RecipeOutput {
+  return parseOutput(RecipeOutputSchema, {
+    id: recipe.id,
+    name: recipe.name,
+    servingSize: recipe.servingSize,
+    calories: recipe.calories,
+    protein: recipe.protein,
+    carbs: recipe.carbs,
+    fat: recipe.fat,
+    fiber: recipe.fiber,
+    netCarbs: recipe.netCarbs,
+    sugar: recipe.sugar,
+    sodium: recipe.sodium,
+    createdAt: recipe.createdAt,
+  });
+}
+
+function formatNutritionSummary(values: {
+  calories: number | null;
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
+  fiber?: number | null;
+  netCarbs?: number | null;
+}): string {
+  const carbSummary = values.netCarbs === null || values.netCarbs === undefined
+    ? `${values.carbs ?? "?"}c`
+    : `${values.carbs ?? "?"}c (${values.netCarbs} net)`;
+  const fiberSummary = values.fiber === null || values.fiber === undefined
+    ? ""
+    : ` | ${values.fiber} fiber`;
+  return `${values.calories ?? "?"} cal | ${values.protein ?? "?"}p ${carbSummary} ${values.fat ?? "?"}f${fiberSummary}`;
+}
+
+function scaleNutrition(value: number | null, multiplier: number): number | null {
+  if (value === null) return null;
+  return Math.round(value * multiplier * 10) / 10;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function buildRecipeCreateCommand(name: string, nutrition: {
+  calories: number | null;
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
+  fiber: number | null;
+  sugar?: number | null;
+  sodium?: number | null;
+}): string {
+  const args = ["nomnom", "recipe", "create", shellQuote(name)];
+  const fields: Array<[string, number | null]> = [
+    ["calories", nutrition.calories],
+    ["protein", nutrition.protein],
+    ["carbs", nutrition.carbs],
+    ["fat", nutrition.fat],
+    ["fiber", nutrition.fiber],
+    ["sugar", nutrition.sugar ?? null],
+    ["sodium", nutrition.sodium ?? null],
+  ];
+
+  for (const [key, value] of fields) {
+    if (value !== null) {
+      args.push(`--${key}`, String(value));
+    }
+  }
+
+  return args.join(" ");
+}
+
+function buildApplySuggestionCommand(id: string, days: number, minOccurrences: number): string {
+  return `nomnom trends apply-suggestion ${shellQuote(id)} --days ${days} --min-occurrences ${minOccurrences}`;
 }
 
 function getUSDAHelp(): string {
@@ -206,6 +352,7 @@ Commands:
     --protein <n>             Protein (g)
     --carbs <n>               Carbs (g)
     --fat <n>                 Fat (g)
+    --fiber <n>               Fiber (g)
     --notes <text>            Notes
     
   delete <id>                 Delete a logged meal by ID
@@ -219,6 +366,7 @@ Commands:
     --protein <n>             Protein (g)
     --carbs <n>               Carbs (g)
     --fat <n>                 Fat (g)
+    --fiber <n>               Fiber (g)
     --notes <text>            Notes
 
   foods [subcommand]          Manage custom foods
@@ -236,6 +384,23 @@ Commands:
     foods list                List all custom foods
     foods delete <id>         Delete a custom food
 
+  recipe [subcommand]         Manage reusable recipe templates
+    recipe create <name>      Save a reusable recipe template
+      --calories <n>          Calories
+      --protein <n>           Protein (g)
+      --carbs <n>             Carbs (g)
+      --fat <n>               Fat (g)
+      --fiber <n>             Fiber (g)
+      --sugar <n>             Sugar (g)
+      --sodium <n>            Sodium (mg)
+      --serving <text>        Serving size description
+    recipe list               List saved recipes
+    recipe log <id>           Log a saved recipe
+      --multiplier <n>        Multiply saved nutrition (default: 1)
+      --type <t>              Meal type: breakfast/lunch/dinner/snack
+      --notes <text>          Notes
+    recipe delete <id>        Delete a saved recipe
+
   today                       Show today's meals and totals
     
   history [options]           Show meal history
@@ -244,12 +409,19 @@ Commands:
     
   trends [options]            Show nutrition trends over time
     --days <n>                Number of days to analyze (default: 7, max: 90)
+    suggest-recipes           Suggest recipe templates from repeated combos
+      --days <n>              Lookback window (default: 30, max: 180)
+      --min-occurrences <n>   Minimum repeated days to suggest (default: 3)
+    apply-suggestion <id>     Turn a suggestion into a saved recipe
+      --days <n>              Lookback window used to resolve the suggestion (default: 30)
+      --min-occurrences <n>   Minimum repeated days used to resolve the suggestion (default: 3)
     
   goals [options]              View or set daily nutrition goals
     --calories <n>             Daily calorie target
     --protein <n>              Daily protein target (g)
     --carbs <n>                Daily carbs target (g)
     --fat <n>                  Daily fat target (g)
+    --netCarbs <n>             Daily net carbs target (g)
     --<macro>-direction <d>    Goal direction: under or over
     --<macro>-tolerance <n>    Tolerance percentage (0-100) for grace zone
     --reset                    Clear all goals
@@ -376,12 +548,12 @@ export async function executeCommand(argv: string[]): Promise<CommandResult> {
           });
 
           printResult(
-            {
+            parseOutput(InitPayloadSchema, {
               initialized: true,
               dataDir: result.dataDir,
               usdaDownloaded: download.success,
               usdaError: download.error,
-            },
+            }),
             download.success
               ? `Initialized NomNom Numbers!\n\nData directory: ${result.dataDir}\nUSDA database downloaded.`
               : `Initialized NomNom Numbers!\n\nData directory: ${result.dataDir}\nFailed to download USDA database: ${download.error}`
@@ -391,11 +563,11 @@ export async function executeCommand(argv: string[]): Promise<CommandResult> {
 
         const result = initializeDatabase();
         printResult(
-          {
+          parseOutput(InitPayloadSchema, {
             initialized: true,
             dataDir: result.dataDir,
             usdaExists: result.usdaExists
-          },
+          }),
           result.mealDbCreated
             ? `Initialized NomNom Numbers!\n\nData directory: ${result.dataDir}\n\n${result.usdaExists ? "" : "Run 'nomnom init --download-usda' to download the USDA food database."}`
             : `Database already initialized.\n\nData directory: ${result.dataDir}\n\n${result.usdaExists ? "" : "Run 'nomnom init --download-usda' to download the USDA food database."}`
@@ -407,7 +579,7 @@ export async function executeCommand(argv: string[]): Promise<CommandResult> {
         if (flags["set-data-dir"]) {
           setDataDir(flags["set-data-dir"]);
           printResult(
-            { success: true, dataDir: flags["set-data-dir"] },
+            parseOutput(ConfigUpdatePayloadSchema, { success: true, dataDir: flags["set-data-dir"] }),
             `Data directory set to: ${flags["set-data-dir"]}`
           );
           break;
@@ -415,7 +587,7 @@ export async function executeCommand(argv: string[]): Promise<CommandResult> {
         if (flags["set-usda-path"]) {
           setUSDAPath(flags["set-usda-path"]);
           printResult(
-            { success: true, usdaPath: flags["set-usda-path"] },
+            parseOutput(ConfigUpdatePayloadSchema, { success: true, usdaPath: flags["set-usda-path"] }),
             `USDA database path set to: ${flags["set-usda-path"]}`
           );
           break;
@@ -423,7 +595,7 @@ export async function executeCommand(argv: string[]): Promise<CommandResult> {
         if (flags.reset) {
           resetConfig();
           printResult(
-            { success: true },
+            parseOutput(ConfigUpdatePayloadSchema, { success: true }),
             "Configuration reset to defaults"
           );
           break;
@@ -434,7 +606,7 @@ export async function executeCommand(argv: string[]): Promise<CommandResult> {
         const usdaExists = existsSync(config.usdaDbPath);
 
         printResult(
-          {
+          parseOutput(ConfigViewPayloadSchema, {
             config: {
               dataDir: config.dataDir,
               mealDbPath: config.mealDbPath,
@@ -446,7 +618,7 @@ export async function executeCommand(argv: string[]): Promise<CommandResult> {
               defaultDataDir: paths.dataDir,
               configFile: paths.configFile,
             },
-          },
+          }),
           `Configuration:
   Data directory: ${config.dataDir}
   Meal database:  ${config.mealDbPath}
@@ -484,14 +656,14 @@ To change settings:
         ];
 
         printResult(
-          { query, count: allResults.length, results: allResults },
+          parseOutput(SearchPayloadSchema, { query, count: allResults.length, results: allResults }),
           allResults.length === 0
             ? `No results for "${query}"`
             : allResults
               .map(
                 (f, i) =>
                   `${i + 1}. [${f.source}] ${f.description}${f.brand ? ` (${f.brand})` : ""}\n` +
-                  `   ${f.calories ?? "?"} cal | ${f.protein ?? "?"}p ${f.carbs ?? "?"}c ${f.fat ?? "?"}f`
+                  `   ${formatNutritionSummary(f)}`
               )
               .join("\n\n")
         );
@@ -506,9 +678,9 @@ To change settings:
         const customFood = lookupCustomBarcode(barcode!);
         if (customFood) {
           printResult(
-            { found: true, ...formatCustomFood(customFood) },
+            parseOutput(LookupPayloadSchema, { found: true, ...formatCustomFood(customFood) }),
             `[custom] ${customFood.description}${customFood.brand ? ` (${customFood.brand})` : ""}\n` +
-            `${customFood.calories ?? "?"} cal | ${customFood.protein ?? "?"}p ${customFood.carbs ?? "?"}c ${customFood.fat ?? "?"}f`
+            `${formatNutritionSummary(customFood)}`
           );
           break;
         }
@@ -520,12 +692,12 @@ To change settings:
         }
         const food = lookupBarcode(barcode!);
         if (!food) {
-          printResult({ found: false, barcode }, `Barcode ${barcode} not found`);
+          printResult(parseOutput(LookupPayloadSchema, { found: false, barcode }), `Barcode ${barcode} not found`);
         } else {
           printResult(
-            { found: true, ...formatFood(food) },
+            parseOutput(LookupPayloadSchema, { found: true, ...formatFood(food) }),
             `${food.description}${food.brand ? ` (${food.brand})` : ""}\n` +
-            `${food.calories ?? "?"} cal | ${food.protein ?? "?"}p ${food.carbs ?? "?"}c ${food.fat ?? "?"}f`
+            `${formatNutritionSummary(food)}`
           );
         }
         break;
@@ -541,7 +713,7 @@ To change settings:
         deleteMeal(id!);
 
         printResult(
-          { success: true, id, foodName: meal!.foodName },
+          parseOutput(DeletePayloadSchema, { success: true, id, foodName: meal!.foodName }),
           `Deleted: ${meal!.foodName}`
         );
         break;
@@ -565,6 +737,7 @@ To change settings:
           protein: flags.protein !== undefined ? parseOptionalFloat(flags.protein) ?? null : existing!.protein,
           carbs: flags.carbs !== undefined ? parseOptionalFloat(flags.carbs) ?? null : existing!.carbs,
           fat: flags.fat !== undefined ? parseOptionalFloat(flags.fat) ?? null : existing!.fat,
+          fiber: flags.fiber !== undefined ? parseOptionalFloat(flags.fiber) ?? null : existing!.fiber,
         };
 
         // Same validation as log
@@ -583,10 +756,11 @@ To change settings:
         if (merged.protein !== existing!.protein) updated.push("protein");
         if (merged.carbs !== existing!.carbs) updated.push("carbs");
         if (merged.fat !== existing!.fat) updated.push("fat");
+        if (merged.fiber !== existing!.fiber) updated.push("fiber");
 
         if (updated.length === 0) {
           printResult(
-            { success: true, id, foodName: merged.foodName, updated: [] },
+            parseOutput(EditPayloadSchema, { success: true, id, foodName: merged.foodName, updated: [] }),
             `No changes to ${merged.foodName}`
           );
           break;
@@ -595,7 +769,7 @@ To change settings:
         updateMeal(id!, merged);
 
         printResult(
-          { success: true, id, foodName: merged.foodName, updated },
+          parseOutput(EditPayloadSchema, { success: true, id, foodName: merged.foodName, updated }),
           `Updated ${merged.foodName}: ${updated.join(", ")}`
         );
         break;
@@ -622,10 +796,11 @@ To change settings:
           protein: parseOptionalFloat(flags.protein),
           carbs: parseOptionalFloat(flags.carbs),
           fat: parseOptionalFloat(flags.fat),
+          fiber: parseOptionalFloat(flags.fiber),
         });
 
         printResult(
-          { success: true, id, foodName, quantity },
+          parseOutput(LogPayloadSchema, { success: true, id, foodName, quantity }),
           `Logged ${quantity} ${flags.unit || "serving"} of ${foodName}`
         );
         break;
@@ -652,7 +827,13 @@ To change settings:
           }
         }
 
-        const result: Record<string, unknown> = {
+        const result: {
+          date: string;
+          totals: typeof totals;
+          meals: MealOutput[];
+          goals?: Record<string, number>;
+          remaining?: Record<string, number>;
+        } = {
           date: today,
           totals,
           meals: meals.map(formatMeal),
@@ -661,9 +842,9 @@ To change settings:
         if (remainingObj) result.remaining = remainingObj;
 
         printResult(
-          result,
+          parseOutput(TodayPayloadSchema, result),
           `Today's Summary (${today})\n` +
-          `${totals.mealCount} meals | ${totals.calories} cal | ${totals.protein}p ${totals.carbs}c ${totals.fat}f\n` +
+          `${totals.mealCount} meals | ${totals.calories} cal | ${totals.protein}p ${totals.carbs}c (${totals.netCarbs} net) ${totals.fat}f\n` +
           (goalsObj && remainingObj
             ? `\nRemaining: ${Object.entries(remainingObj).map(([k, v]) => `${k}: ${v}`).join(" | ")}\n`
             : "") +
@@ -674,7 +855,7 @@ To change settings:
               .map(
                 (m) =>
                   `- ${m.foodName} (${m.quantity} ${m.unit}) [${m.mealType}]\n` +
-                  `  ${m.calories ?? "?"} cal | ${m.protein ?? "?"}p ${m.carbs ?? "?"}c ${m.fat ?? "?"}f${m.notes ? ` | ${m.notes}` : ""} | ${m.loggedAt}`
+                  `  ${formatNutritionSummary(m)}${m.notes ? ` | ${m.notes}` : ""} | ${m.loggedAt}`
               )
               .join("\n"))
         );
@@ -686,14 +867,14 @@ To change settings:
         const offset = parseNonNegativeInt(flags.offset, 0);
         const meals = getMealHistory(limit, offset);
         printResult(
-          { count: meals.length, offset, meals: meals.map(formatMeal) },
+          parseOutput(HistoryPayloadSchema, { count: meals.length, offset, meals: meals.map(formatMeal) }),
           meals.length === 0
             ? "No meals in history"
             : meals
               .map(
                 (m) =>
                   `${m.loggedAt} - ${m.foodName} (${m.quantity} ${m.unit})\n` +
-                  `  ${m.calories ?? "?"} cal | ${m.protein ?? "?"}p ${m.carbs ?? "?"}c ${m.fat ?? "?"}f`
+                  `  ${formatNutritionSummary(m)}`
               )
               .join("\n\n")
         );
@@ -704,12 +885,12 @@ To change settings:
         // Reset
         if (flags.reset) {
           resetGoals();
-          printResult({ success: true }, "Goals reset");
+          printResult(parseOutput(GoalsResetPayloadSchema, { success: true }), "Goals reset");
           break;
         }
 
         // Set goals (at least one macro flag required)
-        const macros = ["calories", "protein", "carbs", "fat"] as const;
+        const macros = ["calories", "protein", "carbs", "fat", "netCarbs"] as const;
         const toSet: Array<{ key: string; target: number; direction?: "under" | "over"; tolerance?: number }> = [];
         const tolOnly: Array<{ key: string; tolerance: number }> = [];
         for (const m of macros) {
@@ -743,7 +924,7 @@ To change settings:
             }
           }
           printResult(
-            { success: true, goalsSet: allKeys },
+            parseOutput(GoalsSetPayloadSchema, { success: true, goalsSet: allKeys }),
             `Goals set: ${allKeys.join(", ")}`
           );
           break;
@@ -752,7 +933,7 @@ To change settings:
         // View goals
         const goals = getGoals();
         if (goals.length === 0) {
-          printResult({ goals: null }, "No goals set. Use: nomnom goals --calories 2000 --protein 120");
+          printResult(parseOutput(GoalsViewPayloadSchema, { goals: null }), "No goals set. Use: nomnom goals --calories 2000 --protein 120");
           break;
         }
 
@@ -764,7 +945,7 @@ To change settings:
         }
 
         printResult(
-          { goals: { ...goalsObj, updatedAt: latestUpdate } },
+          parseOutput(GoalsViewPayloadSchema, { goals: { ...goalsObj, updatedAt: latestUpdate } }),
           goals
             .map((g) => {
               const tolStr = g.tolerance > 0 ? ` ±${g.tolerance}%` : "";
@@ -897,13 +1078,14 @@ To change settings:
             d.setDate(d.getDate() - 1);
           }
         }
-        let weekCal = 0, weekPro = 0, weekCarb = 0, weekFat = 0, daysTracked = 0;
+        let weekCal = 0, weekPro = 0, weekCarb = 0, weekNetCarb = 0, weekFat = 0, daysTracked = 0;
         for (const wd of weekDates) {
           const day = dayMap.get(wd);
           if (day && day.mealCount > 0) {
             weekCal += day.calories;
             weekPro += day.protein;
             weekCarb += day.carbs;
+            weekNetCarb += day.netCarbs;
             weekFat += day.fat;
             daysTracked++;
           }
@@ -914,10 +1096,11 @@ To change settings:
             calories: Math.round((weekCal / daysTracked) * 10) / 10,
             protein: Math.round((weekPro / daysTracked) * 10) / 10,
             carbs: Math.round((weekCarb / daysTracked) * 10) / 10,
+            netCarbs: Math.round((weekNetCarb / daysTracked) * 10) / 10,
             fat: Math.round((weekFat / daysTracked) * 10) / 10,
             daysTracked,
           }
-          : { calories: 0, protein: 0, carbs: 0, fat: 0, daysTracked: 0 };
+          : { calories: 0, protein: 0, carbs: 0, netCarbs: 0, fat: 0, daysTracked: 0 };
 
         // Build JSON result
         const result = {
@@ -956,10 +1139,10 @@ To change settings:
         streakParts.push(`all ${allCurrent}d (best ${allBest}d)`);
         humanLines.push(`\nStreaks:  ${streakParts.join(" | ")}`);
         humanLines.push(
-          `\n7-day avg: ${weeklyAvg.calories} cal | ${weeklyAvg.protein}p ${weeklyAvg.carbs}c ${weeklyAvg.fat}f (${weeklyAvg.daysTracked} days tracked)`
+          `\n7-day avg: ${weeklyAvg.calories} cal | ${weeklyAvg.protein}p ${weeklyAvg.carbs}c (${weeklyAvg.netCarbs} net) ${weeklyAvg.fat}f (${weeklyAvg.daysTracked} days tracked)`
         );
 
-        printResult(result, humanLines.join("\n"));
+        printResult(parseOutput(ProgressPayloadSchema, result), humanLines.join("\n"));
         break;
       }
 
@@ -969,19 +1152,15 @@ To change settings:
         if (!subcommand || subcommand === "list") {
           const foods = listCustomFoods();
           printResult(
-            {
-              count: foods.length, foods: foods.map(f => ({
-                id: f.id, name: f.description, brand: f.brand, barcode: f.barcode,
-                servingSize: f.servingSize, calories: f.calories, protein: f.protein,
-                carbs: f.carbs, fat: f.fat, fiber: f.fiber, sugar: f.sugar,
-                sodium: f.sodium, createdAt: f.createdAt,
-              }))
-            },
+            parseOutput(FoodsListPayloadSchema, {
+              count: foods.length,
+              foods: foods.map(formatCustomFoodListItem),
+            }),
             foods.length === 0
               ? "No custom foods"
               : foods.map((f, i) =>
                 `${i + 1}. ${f.description}${f.brand ? ` (${f.brand})` : ""}` +
-                `\n   ${f.calories ?? "?"} cal | ${f.protein ?? "?"}p ${f.carbs ?? "?"}c ${f.fat ?? "?"}f`
+                `\n   ${formatNutritionSummary(f)}`
               ).join("\n\n")
           );
           break;
@@ -1006,7 +1185,7 @@ To change settings:
           });
 
           printResult(
-            { success: true, id, name },
+            parseOutput(FoodsAddPayloadSchema, { success: true, id, name }),
             `Added custom food: ${name}`
           );
           break;
@@ -1020,7 +1199,7 @@ To change settings:
           if (!result.deleted) printError(`Custom food not found: ${id}`);
 
           printResult(
-            { success: true, id, name: result.description },
+            parseOutput(FoodsDeletePayloadSchema, { success: true, id, name: result.description }),
             `Deleted custom food: ${result.description}`
           );
           break;
@@ -1030,7 +1209,245 @@ To change settings:
         break;
       }
 
+      case "recipe":
+      case "recipes": {
+        const subcommand = positional[0];
+
+        if (!subcommand || subcommand === "list") {
+          const recipes = listRecipes();
+          printResult(
+            parseOutput(RecipeListPayloadSchema, {
+              count: recipes.length,
+              recipes: recipes.map(formatRecipe),
+            }),
+            recipes.length === 0
+              ? "No saved recipes"
+              : recipes.map((recipe, i) =>
+                `${i + 1}. [${recipe.id}] ${recipe.name}` +
+                `${recipe.servingSize ? ` (${recipe.servingSize})` : ""}` +
+                `\n   ${formatNutritionSummary(recipe)}`
+              ).join("\n\n")
+          );
+          break;
+        }
+
+        if (subcommand === "create") {
+          const name = positional.slice(1).join(" ");
+          if (!name) printError("Usage: nomnom recipe create <name> [--calories <n>] ...");
+
+          const recipeInput = {
+            name,
+            servingSize: flags.serving,
+            calories: parseOptionalFloat(flags.calories),
+            protein: parseOptionalFloat(flags.protein),
+            carbs: parseOptionalFloat(flags.carbs),
+            fat: parseOptionalFloat(flags.fat),
+            fiber: parseOptionalFloat(flags.fiber),
+            sugar: parseOptionalFloat(flags.sugar),
+            sodium: parseOptionalFloat(flags.sodium),
+          };
+
+          const hasNutrition = [
+            recipeInput.calories,
+            recipeInput.protein,
+            recipeInput.carbs,
+            recipeInput.fat,
+            recipeInput.fiber,
+            recipeInput.sugar,
+            recipeInput.sodium,
+          ].some((value) => value !== undefined);
+
+          if (!hasNutrition) {
+            printError("Recipe templates need at least one nutrition field. Example: nomnom recipe create \"Chicken Bowl\" --calories 500 --protein 30");
+          }
+
+          const id = addRecipe(recipeInput);
+          const recipe = getRecipeById(id)!;
+
+          printResult(
+            parseOutput(RecipeCreatePayloadSchema, { success: true, ...formatRecipe(recipe) }),
+            `Saved recipe: ${recipe.name}`
+          );
+          break;
+        }
+
+        if (subcommand === "log") {
+          const id = positional[1];
+          if (!id) printError("Usage: nomnom recipe log <id> [--multiplier <n>] [--type <meal>] [--notes <text>]");
+
+          const recipe = getRecipeById(id!);
+          if (!recipe) printError(`Recipe not found: ${id}`);
+
+          const multiplier = parseOptionalFloat(flags.multiplier) ?? 1;
+          if (multiplier <= 0) {
+            printError(`Invalid multiplier "${flags.multiplier}". Must be greater than 0.`);
+          }
+
+          const mealType = flags.type || "snack";
+          if (!VALID_MEAL_TYPES.has(mealType)) {
+            printError(`Invalid meal type "${mealType}". Must be one of: breakfast, lunch, dinner, snack`);
+          }
+
+          const mealId = logMeal({
+            foodName: recipe!.name,
+            quantity: multiplier,
+            unit: recipe!.servingSize || "recipe",
+            mealType,
+            notes: flags.notes,
+            calories: scaleNutrition(recipe!.calories, multiplier) ?? undefined,
+            protein: scaleNutrition(recipe!.protein, multiplier) ?? undefined,
+            carbs: scaleNutrition(recipe!.carbs, multiplier) ?? undefined,
+            fat: scaleNutrition(recipe!.fat, multiplier) ?? undefined,
+            fiber: scaleNutrition(recipe!.fiber, multiplier) ?? undefined,
+            sugar: scaleNutrition(recipe!.sugar, multiplier) ?? undefined,
+            sodium: scaleNutrition(recipe!.sodium, multiplier) ?? undefined,
+          });
+          const actualNutrition = {
+            calories: scaleNutrition(recipe!.calories, multiplier),
+            protein: scaleNutrition(recipe!.protein, multiplier),
+            carbs: scaleNutrition(recipe!.carbs, multiplier),
+            fat: scaleNutrition(recipe!.fat, multiplier),
+            fiber: scaleNutrition(recipe!.fiber, multiplier),
+            sugar: scaleNutrition(recipe!.sugar, multiplier),
+            sodium: scaleNutrition(recipe!.sodium, multiplier),
+            netCarbs: scaleNutrition(recipe!.netCarbs, multiplier),
+          };
+
+          const hints = [
+            { action: "check-summary", command: "nomnom today", confidence: 0.92 },
+            ...(getGoals().length > 0
+              ? [{ action: "check-progress", command: "nomnom progress", confidence: 0.84 }]
+              : []),
+          ];
+
+          printResult(
+            parseOutput(RecipeLogPayloadSchema, {
+              success: true,
+              recipeId: recipe!.id,
+              mealId,
+              name: recipe!.name,
+              multiplier,
+              actualNutrition,
+              hints,
+            }),
+            `Logged recipe ${recipe!.name} x${multiplier}`
+          );
+          break;
+        }
+
+        if (subcommand === "delete") {
+          const id = positional[1];
+          if (!id) printError("Usage: nomnom recipe delete <id>");
+
+          const result = deleteRecipe(id);
+          if (!result.deleted) printError(`Recipe not found: ${id}`);
+
+          printResult(
+            parseOutput(RecipeDeletePayloadSchema, { success: true, id, name: result.name }),
+            `Deleted recipe: ${result.name}`
+          );
+          break;
+        }
+
+        printError(`Unknown recipe subcommand "${subcommand}". Use: create, list, log, delete`);
+        break;
+      }
+
       case "trends": {
+        const subcommand = positional[0];
+        if (subcommand === "apply-suggestion") {
+          const id = positional[1];
+          if (!id) printError("Usage: nomnom trends apply-suggestion <id> [--days <n>] [--min-occurrences <n>]");
+
+          const days = parsePositiveInt(flags.days, 30, 180);
+          const minOccurrences = parsePositiveInt(flags["min-occurrences"], 3, 30);
+          const suggestion = getRecipeSuggestions(days, minOccurrences).find((item) => item.id === id);
+          if (!suggestion) {
+            printError(`Suggestion not found: ${id}`);
+          }
+
+          const recipeId = addRecipe({
+            name: suggestion!.suggestedName,
+            calories: suggestion!.calories ?? undefined,
+            protein: suggestion!.protein ?? undefined,
+            carbs: suggestion!.carbs ?? undefined,
+            fat: suggestion!.fat ?? undefined,
+            fiber: suggestion!.fiber ?? undefined,
+            sugar: suggestion!.sugar ?? undefined,
+            sodium: suggestion!.sodium ?? undefined,
+          });
+          const recipe = getRecipeById(recipeId)!;
+
+          printResult(
+            parseOutput(RecipeApplySuggestionPayloadSchema, {
+              success: true,
+              suggestionId: suggestion!.id,
+              ...formatRecipe(recipe),
+              hints: [{
+                action: "log-recipe",
+                command: `nomnom recipe log ${recipe.id}`,
+                confidence: 0.93,
+              }],
+            }),
+            `Saved recipe from suggestion: ${recipe.name}`
+          );
+          break;
+        }
+
+        if (subcommand === "suggest-recipes") {
+          const days = parsePositiveInt(flags.days, 30, 180);
+          const minOccurrences = parsePositiveInt(flags["min-occurrences"], 3, 30);
+          const suggestions = getRecipeSuggestions(days, minOccurrences).map((suggestion): RecipeSuggestionOutput => {
+            const nutrition = {
+              calories: suggestion.calories,
+              protein: suggestion.protein,
+              carbs: suggestion.carbs,
+              fat: suggestion.fat,
+              fiber: suggestion.fiber,
+              sugar: suggestion.sugar,
+              sodium: suggestion.sodium,
+              netCarbs: suggestion.netCarbs,
+            };
+
+            return {
+              id: suggestion.id,
+              foods: suggestion.foods,
+              frequency: suggestion.frequency,
+              suggestedName: suggestion.suggestedName,
+              nutrition,
+              hints: [
+                {
+                  action: "apply-suggestion",
+                  command: buildApplySuggestionCommand(suggestion.id, days, minOccurrences),
+                  confidence: Math.min(0.99, 0.6 + suggestion.frequency * 0.1),
+                },
+                {
+                  action: "save-as-recipe",
+                  command: buildRecipeCreateCommand(suggestion.suggestedName, nutrition),
+                  confidence: Math.min(0.99, 0.5 + suggestion.frequency * 0.1),
+                },
+              ],
+            };
+          });
+
+          printResult(
+            parseOutput(TrendRecipeSuggestionsPayloadSchema, {
+              days,
+              minOccurrences,
+              count: suggestions.length,
+              suggestions,
+            }),
+            suggestions.length === 0
+              ? "No repeatable recipe suggestions found"
+              : suggestions.map((suggestion, index) =>
+                `${index + 1}. ${suggestion.suggestedName} (${suggestion.frequency} days) [${suggestion.id}]` +
+                `\n   ${formatNutritionSummary(suggestion.nutrition)}` +
+                `\n   ${suggestion.hints[0]?.command ?? ""}`
+              ).join("\n\n")
+          );
+          break;
+        }
+
         const days = parsePositiveInt(flags.days, 7, 90);
         const data = getTrendData(days);
 
@@ -1040,14 +1457,15 @@ To change settings:
           `  Calories: ${data.averages.calories}`,
           `  Protein:  ${data.averages.protein}g`,
           `  Carbs:    ${data.averages.carbs}g`,
+          `  Net:      ${data.averages.netCarbs}g`,
           `  Fat:      ${data.averages.fat}g`,
           `\nDaily Breakdown:`,
           ...data.daily.map(
-            d => `  ${d.date}: ${d.calories} cal | ${d.protein}p ${d.carbs}c ${d.fat}f (${d.mealCount} meals)`
+            d => `  ${d.date}: ${d.calories} cal | ${d.protein}p ${d.carbs}c (${d.netCarbs} net) ${d.fat}f (${d.mealCount} meals)`
           ),
         ];
 
-        printResult(data, humanLines.join("\n"));
+        printResult(parseOutput(TrendsPayloadSchema, data), humanLines.join("\n"));
         break;
       }
 
