@@ -364,12 +364,11 @@ function initTables(db: Database) {
 // ---- Migrations ----
 
 const migrations: Array<(db: Database) => void> = [
-  // Migration 1: Convert UTC logged_at timestamps to local time.
-  // Previously datetime('now') stored UTC; now we store local time explicitly.
-  // SQLite's 'localtime' modifier converts UTC → local using the system timezone.
-  (db) => {
-    db.exec("UPDATE meals SET logged_at = datetime(logged_at, 'localtime')");
-  },
+  // Migration 1: Reserved no-op.
+  // Older builds stored UTC timestamps and newer builds store local timestamps.
+  // We cannot safely distinguish those rows after the fact, so a blanket conversion
+  // would risk corrupting already-local data. Preserve existing timestamps as-is.
+  (_db) => {},
 ];
 
 function runMigrations(db: Database): void {

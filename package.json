@@ -8,7 +8,7 @@
     "nomnom": "./src/cli.ts",
     "nomnom-mcp": "./src/mcp.ts"
   },
-  "files": ["src/", "README.md"],
+  "files": ["src/", "README.md", "plugin.json"],
   "scripts": {
     "start": "bun run src/cli.ts",
     "dev": "bun --watch run src/cli.ts",
